@@ -4,9 +4,9 @@ block_cipher = None
 
 
 a = Analysis(['main.py'],
-#             pathex=['.\\hyperspectral'],
+             pathex=['E:\\CVL_offline\\hyperlyse\\hyperlyse'],
              binaries=[],
-             datas=[('mainwindow.ui', '.')],
+             datas=[('centralwidget.ui', '.'), ('startup.png', '.')],
              hiddenimports=[],
              hookspath=[],
              runtime_hooks=[],
@@ -19,7 +19,6 @@ pyz = PYZ(a.pure, a.zipped_data,
              cipher=block_cipher)
 exe = EXE(pyz,
           a.scripts,
-          a.datas,
           [],
           exclude_binaries=True,
           name='hyperlyse',

@@ -1,21 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>MainWindow</class>
- <widget class="QMainWindow" name="MainWindow">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>1077</width>
-    <height>600</height>
-   </rect>
-  </property>
-  <property name="acceptDrops">
-   <bool>true</bool>
-  </property>
-  <property name="windowTitle">
-   <string>Hyperlyse</string>
-  </property>
+ <class>QWidget</class>
   <widget class="QWidget" name="centralwidget">
    <layout class="QGridLayout" name="gridLayout_2">
     <item row="0" column="0">
@@ -40,7 +25,7 @@
       <item>
        <widget class="QCheckBox" name="checkBoxRGB">
         <property name="enabled">
-         <bool>false</bool>
+         <bool>true</bool>
         </property>
         <property name="text">
          <string>RGB</string>
@@ -51,13 +36,17 @@
        </widget>
       </item>
       <item>
-       <widget class="QSlider" name="horizontalSlider">
+       <widget class="QSlider" name="lambdaSlider">
         <property name="enabled">
-         <bool>false</bool>
+         <bool>true</bool>
         </property>
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
         </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="lambdaLabel">
        </widget>
       </item>
      </layout>
@@ -87,7 +76,6 @@
     <string>load HS data...</string>
    </property>
   </action>
- </widget>
  <resources/>
  <connections/>
 </ui>

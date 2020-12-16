@@ -1,0 +1,1 @@
+pyinstaller --add-data "centralwidget.ui;." --add-data "startup.png;." --distpath "../dist" --workpath "../build" --name hyperlyse main.py
