@@ -8,7 +8,7 @@ bands = 204
 bits = 16
 lambda_min = 397
 lambda_max = 1004
-lambda_step = (lambda_max-lambda_min) / bands
+lambda_delta = (lambda_max - lambda_min) / bands
 lambda_space = np.linspace(lambda_min, lambda_max, bands)
 
 
@@ -16,9 +16,9 @@ def cube2rgb(cube):
     r = 598
     g = 548
     b = 449
-    rgb = np.dstack((cube[:, :, int((r - lambda_min) / lambda_step)],
-                     cube[:, :, int((g - lambda_min) / lambda_step)],
-                     cube[:, :, int((b - lambda_min) / lambda_step)]))
+    rgb = np.dstack((cube[:, :, int((r - lambda_min) / lambda_delta)],
+                     cube[:, :, int((g - lambda_min) / lambda_delta)],
+                     cube[:, :, int((b - lambda_min) / lambda_delta)]))
     return rgb
 
 

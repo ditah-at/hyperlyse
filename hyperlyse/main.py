@@ -9,8 +9,7 @@ from PyQt5.QtWidgets import QSizePolicy, QHBoxLayout, QGridLayout
 import matplotlib.image
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-import hyperlyse.specim as specim
-#from hyperlyse.mainwindow import Ui_MainWindow
+from hyperlyse import specim, processing
 
 
 class PlotCanvas(FigureCanvas):
@@ -269,6 +268,7 @@ class MainWindow(QMainWindow):
 
 # main
 if __name__ == "__main__":
-    app = QApplication([])
-    win = MainWindow()
-    sys.exit(app.exec())
+    # app = QApplication([])
+    # win = MainWindow()
+    # sys.exit(app.exec())
+    processing.create_database('E:/CVL_offline/specim_data/Worco_medium_poster', True)
