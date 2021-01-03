@@ -11,14 +11,16 @@ lambda_max = 1004
 lambda_delta = (lambda_max - lambda_min) / bands
 lambda_space = np.linspace(lambda_min, lambda_max, bands)
 
-
 def cube2rgb(cube):
+    # wavelengths of red, green, blue
     r = 598
     g = 548
     b = 449
     rgb = np.dstack((cube[:, :, int((r - lambda_min) / lambda_delta)],
                      cube[:, :, int((g - lambda_min) / lambda_delta)],
                      cube[:, :, int((b - lambda_min) / lambda_delta)]))
+    # clip anything above white
+    rgb[rgb > 1] = 1
     return rgb
 
 
