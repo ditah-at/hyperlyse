@@ -193,9 +193,9 @@ class MainWindow(QMainWindow):
 
         # analysis menu
         menu_analysis = menubar.addMenu('&Analysis')
-        self.action_match_cube = menu_analysis.addAction('&Match whole image with database')
-        self.action_match_cube.setEnabled(False)
-        self.action_match_cube.triggered.connect(self.match_cube)
+        # self.action_match_cube = menu_analysis.addAction('&Match whole image with database')
+        # self.action_match_cube.setEnabled(False)
+        # self.action_match_cube.triggered.connect(self.match_cube)
 
         submenu_db = menu_analysis.addMenu('&Database management')
         action_load_db = submenu_db.addAction('&Load database from .json...')
