@@ -4,13 +4,12 @@ import numpy as np
 import hyperlyse.specim as specim
 from matplotlib import pyplot as plt
 
-DEBUG_MODE = False
-DEBUG_N_SPECTRA = 5
 
 class Analysis:
 
     def __init__(self):
         self.db = None
+        self.db_file = None
 
 
     @staticmethod
@@ -80,19 +79,42 @@ class Analysis:
                 json.dump(db_spectra, f, indent=4)
 
     def load_db(self, file):
-        with open(file, 'r') as f:
+        self.db_file = file
+        with open(self.db_file, 'r') as f:
             self.db = json.load(f)
-        for s in self.db:
-            s['gradient'] = np.gradient(s['spectrum'])
+        self.db.sort(key=lambda x: x['name'])
 
-        if DEBUG_MODE:
-            self.db = self.db[:DEBUG_N_SPECTRA]
+    def save_db(self, file=None):
+        if file is None:
+            file = self.db_file
+        with open(file, 'w') as f:
+            json.dump(self.db, f, indent=4)
+
+    def add_to_db(self, name, spectrum):
+        if isinstance(spectrum, np.ndarray):
+            spectrum = [x.item() for x in spectrum]
+        if name in [s['name'] for s in self.db]:
+            # overwrite spectrum
+            for s in self.db:
+                if s['name'] == name:
+                    s['spectrum'] = spectrum
+        else:
+            # insert new spectrum
+            sample = {
+                'spectrum': spectrum,
+                'name': name,
+                'lambda_min': specim.lambda_min,
+                'lambda_max': specim.lambda_max,
+                'lambda_delta': specim.lambda_delta
+            }
+            self.db.append(sample)
+
 
     def search_spectrum(self, query_spectrum, use_gradient=False, squared_errs=True):
         result = self.db.copy()
-        for s in self.db:
+        for s in result:
             if use_gradient:
-                errs = np.gradient(query_spectrum) - s['gradient']
+                errs = np.gradient(query_spectrum) - np.gradient(s['spectrum'])
             else:
                 errs = query_spectrum - s['spectrum']
 
@@ -101,11 +123,9 @@ class Analysis:
             else:
                 errs = np.abs(errs)
 
-            sum_errs = np.sum(errs)
-            if squared_errs:
-                sum_errs = np.sqrt(sum_errs)
+            mean_err = np.sum(errs) # / len(query_spectrum)
 
-            s['error'] = sum_errs
+            s['error'] = mean_err
 
         result.sort(key=lambda x: x['error'])
 
@@ -126,69 +146,67 @@ class Analysis:
         else:
             cube_diff = np.abs(cube_diff)
 
-        err_map = np.sum(cube_diff, 2)
-        if squared_errs:
-            err_map = np.sqrt(err_map)
+        err_map = np.sum(cube_diff, 2) # / cube.shape[2]
 
-        # map to [0, 1], where 1 is equal and 0 is.. very different.
-        err_map = 1 - (err_map / err_map.max())
         return err_map
 
-    def compare_cube_to_db(self,
-                             cube,
-                             use_gradient=False,
-                             squared_errs=True,
-                             r_first_to_second=0.5,
-                             r_gt_zero=0.01,
-                             vis_dir=None):
-
-        map_stack = None
-        for s, i in zip(self.db, range(len(self.db))):
-            print('Computing differences with %s (%d/%d)...' % (s['name'], i+1, len(self.db)))
-
-            if use_gradient:
-                cube = np.gradient(cube, axis=2)
-                cube_diff = cube - s['gradient']
-            else:
-                cube_diff = cube - s['spectrum']
-            if squared_errs:
-                cube_diff = np.power(cube_diff, 2)
-            else:
-                cube_diff = np.abs(cube_diff)
-
-            cube_diff = np.sum(cube_diff, 2)
-            if squared_errs:
-                cube_diff = np.sqrt(cube_diff)
-
-            map_stack = cube_diff if map_stack is None else np.dstack((map_stack, cube_diff))
 
 
-        map_stack = map_stack*(-1) + map_stack.max()    # reverse
-        winner_map = np.argmax(map_stack, 2)
-        max_map = np.max(map_stack, 2)
-        map_stack_largestremoved = map_stack.copy()
-        for s, i in zip(self.db, range(len(self.db))):
-            map_stack_largestremoved[i == winner_map] = -1
-        max_map_second = np.max(map_stack_largestremoved, 2)
-
-        has_unique_winner = np.divide(max_map_second, max_map) < r_first_to_second
-
-        print('Creating visualizations...')
-        for s, i in zip(self.db, range(len(self.db))):
-            is_largest = winner_map == i
-            #set_zero = np.logical_not(is_largest)
-            set_zero = np.logical_not(np.logical_and(is_largest, has_unique_winner))
-            img = map_stack[:, :, i]
-            img[set_zero] = 0
-            # visualizations
-            n_gt_zero = np.sum(img[img>0])
-            if n_gt_zero / img.size > r_gt_zero:
-                if vis_dir is not None:
-                    if not os.path.exists(vis_dir):
-                        os.makedirs(vis_dir)
-                    plt.clf()
-                    plt.imshow(img)
-                    plt.colorbar()
-                    plt.title(s['name'])
-                    plt.savefig(os.path.join(vis_dir, s['name'] + '_bestmatch.png'))
-        print('Done!')
+    # def compare_cube_to_db(self,
+    #                          cube,
+    #                          use_gradient=False,
+    #                          squared_errs=True,
+    #                          r_first_to_second=0.5,
+    #                          r_gt_zero=0.01,
+    #                          vis_dir=None):
+    #
+    #     map_stack = None
+    #     for s, i in zip(self.db, range(len(self.db))):
+    #         print('Computing differences with %s (%d/%d)...' % (s['name'], i+1, len(self.db)))
+    #
+    #         if use_gradient:
+    #             cube = np.gradient(cube, axis=2)
+    #             cube_diff = cube - s['gradient']
+    #         else:
+    #             cube_diff = cube - s['spectrum']
+    #         if squared_errs:
+    #             cube_diff = np.power(cube_diff, 2)
+    #         else:
+    #             cube_diff = np.abs(cube_diff)
+    #
+    #         cube_diff = np.sum(cube_diff, 2)
+    #         if squared_errs:
+    #             cube_diff = np.sqrt(cube_diff)
+    #
+    #         map_stack = cube_diff if map_stack is None else np.dstack((map_stack, cube_diff))
+    #
+    #
+    #     map_stack = map_stack*(-1) + map_stack.max()    # reverse
+    #     winner_map = np.argmax(map_stack, 2)
+    #     max_map = np.max(map_stack, 2)
+    #     map_stack_largestremoved = map_stack.copy()
+    #     for s, i in zip(self.db, range(len(self.db))):
+    #         map_stack_largestremoved[i == winner_map] = -1
+    #     max_map_second = np.max(map_stack_largestremoved, 2)
+    #
+    #     has_unique_winner = np.divide(max_map_second, max_map) < r_first_to_second
+    #
+    #     print('Creating visualizations...')
+    #     for s, i in zip(self.db, range(len(self.db))):
+    #         is_largest = winner_map == i
+    #         #set_zero = np.logical_not(is_largest)
+    #         set_zero = np.logical_not(np.logical_and(is_largest, has_unique_winner))
+    #         img = map_stack[:, :, i]
+    #         img[set_zero] = 0
+    #         # visualizations
+    #         n_gt_zero = np.sum(img[img>0])
+    #         if n_gt_zero / img.size > r_gt_zero:
+    #             if vis_dir is not None:
+    #                 if not os.path.exists(vis_dir):
+    #                     os.makedirs(vis_dir)
+    #                 plt.clf()
+    #                 plt.imshow(img)
+    #                 plt.colorbar()
+    #                 plt.title(s['name'])
+    #                 plt.savefig(os.path.join(vis_dir, s['name'] + '_bestmatch.png'))
+    #     print('Done!')

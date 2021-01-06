@@ -3,9 +3,9 @@ import os
 import numpy as np
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog
-from PyQt5.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox
-from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QSpacerItem
+from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog, QMessageBox
+from PyQt5.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QFrame
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget
 import matplotlib.image
 from matplotlib import pyplot as plt
 from hyperlyse import specim, Analysis, PlotCanvas
@@ -14,10 +14,6 @@ from hyperlyse import specim, Analysis, PlotCanvas
 # config
 DEFAULT_DB_FILE = 'Worco_medium_poster_spectra-db.json'
 
-class DisplayMode:
-    RGB = 0
-    LAYERS = 1
-    SIMILARITY = 2
 
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
@@ -26,9 +22,9 @@ class MainWindow(QMainWindow):
         # data members
         self.cube = None
         self.rgb = None
-        self.similarity_map = None
-        self.similarity_ref_spectrum = []
-        self.similarity_use_gradient = False
+        self.error_map = None
+        self.error_map_ref_spectrum = []
+        self.error_map_use_gradient = False
         self.x = -1
         self.y = -1
         self.spectrum = None
@@ -50,6 +46,7 @@ class MainWindow(QMainWindow):
         cw.setLayout(layout_outer)
 
         ### image display
+
         layout_img = QVBoxLayout(cw)
         layout_outer.addLayout(layout_img)
 
@@ -63,6 +60,7 @@ class MainWindow(QMainWindow):
         self.lbl_img.dropEvent = self.handle_drop
         layout_img.addWidget(self.lbl_img)
 
+        # image controls
         layout_img_ctrl = QHBoxLayout(cw)
         layout_img.addLayout(layout_img_ctrl)
 
@@ -70,41 +68,68 @@ class MainWindow(QMainWindow):
         lbl_img_display.setText('Display:')
         layout_img_ctrl.addWidget(lbl_img_display)
 
-        self.cmb_mode = QComboBox(cw)
-        self.cmb_mode.addItem('RGB', DisplayMode.RGB)
-        self.cmb_mode.addItem('layers', DisplayMode.LAYERS)
-        self.cmb_mode.addItem('similarity', DisplayMode.SIMILARITY)
-        self.cmb_mode.setCurrentIndex(0)
-        self.cmb_mode.currentIndexChanged.connect(self.update_image_label)
-        layout_img_ctrl.addWidget(self.cmb_mode)
+        self.tabs_img_ctrl = QTabWidget(cw)
+        self.tabs_img_ctrl.currentChanged.connect(self.update_image_label)
+        layout_img_ctrl.addWidget(self.tabs_img_ctrl)
 
-        self.sl_lambda = QSlider(cw)
+        # RGB -> index 0
+        tab_rgb = QWidget()
+        tab_rgb.setLayout(QHBoxLayout())
+        self.tabs_img_ctrl.addTab(tab_rgb, 'RGB')
+
+        lbl_rgb = QLabel(tab_rgb)
+        lbl_rgb.setText('Shows an RGB representation of the Hyperspectral cube.')
+        tab_rgb.layout().addWidget(lbl_rgb)
+
+        # layers -> index 1
+        tab_layers = QWidget()
+        tab_layers.setLayout(QHBoxLayout())
+        self.tabs_img_ctrl.addTab(tab_layers, 'layers')
+
+        lbl_layers = QLabel(tab_layers)
+        lbl_layers.setText('Select layer:')
+        tab_layers.layout().addWidget(lbl_layers)
+
+        self.sl_lambda = QSlider(tab_layers)
         self.sl_lambda.setOrientation(Qt.Horizontal)
-        self.sl_lambda.setVisible(False)
         self.sl_lambda.valueChanged.connect(self.update_image_label)
         self.sl_lambda.setMinimumWidth(300)
-        layout_img_ctrl.addWidget(self.sl_lambda)
+        self.sl_lambda.setValue(0)
+        tab_layers.layout().addWidget(self.sl_lambda)
 
-        self.cmb_reference = QComboBox(cw)
+        self.lbl_lambda = QLabel(tab_layers)
+        self.lbl_lambda.setText(self.get_lambda_slider_text(0))
+        tab_layers.layout().addWidget(self.lbl_lambda)
+
+        # similarity -> index 2
+        tab_similarity = QWidget()
+        tab_similarity.setLayout(QHBoxLayout())
+        self.tabs_img_ctrl.addTab(tab_similarity, 'similarity')
+
+        self.cmb_reference = QComboBox(tab_similarity)
         self.cmb_reference.addItem('SELECTED PIXEL', -1)
         for s, i in zip(self.anal.db, range(len(self.anal.db))):
             self.cmb_reference.addItem(s['name'], i)
-        self.cmb_reference.setVisible(False)
         self.cmb_reference.currentIndexChanged.connect(self.update_image_label)
-        layout_img_ctrl.addWidget(self.cmb_reference)
+        tab_similarity.layout().addWidget(self.cmb_reference)
 
-        self.cb_similarity_gradient = QCheckBox(cw)
+        self.cb_similarity_gradient = QCheckBox(tab_similarity)
         self.cb_similarity_gradient.setChecked(False)
         self.cb_similarity_gradient.setText('compare gradients')
-        self.cb_similarity_gradient.setVisible(False)
         self.cb_similarity_gradient.stateChanged.connect(self.update_image_label)
-        layout_img_ctrl.addWidget(self.cb_similarity_gradient)
+        tab_similarity.layout().addWidget(self.cb_similarity_gradient)
 
-        self.lbl_lambda = QLabel(cw)
-        layout_img_ctrl.addWidget(self.lbl_lambda)
+        lbl_sim_t = QLabel(tab_similarity)
+        lbl_sim_t.setText('t=')
+        tab_similarity.layout().addWidget(lbl_sim_t)
 
-        layout_img_ctrl.addStretch()
-
+        self.sl_sim_t = QSlider(tab_similarity)
+        self.sl_sim_t.setOrientation(Qt.Horizontal)
+        self.sl_sim_t.setMinimum(0)
+        self.sl_sim_t.setMaximum(99)
+        self.sl_sim_t.setValue(0)
+        self.sl_sim_t.valueChanged.connect(self.update_image_label)
+        tab_similarity.layout().addWidget(self.sl_sim_t)
 
         ### specrtra display
         layout_spectra = QVBoxLayout(cw)
@@ -155,10 +180,10 @@ class MainWindow(QMainWindow):
         layout_export_ctrl = QHBoxLayout(cw)
         layout_spectra.addLayout(layout_export_ctrl)
 
-        self.btn_export = QPushButton(cw)
-        self.btn_export.setText('Export Spectrum')
-        self.btn_export.clicked.connect(self.export_spectrum)
-        layout_export_ctrl.addWidget(self.btn_export)
+        btn_export = QPushButton(cw)
+        btn_export.setText('Export Spectrum')
+        btn_export.clicked.connect(self.export_spectrum)
+        layout_export_ctrl.addWidget(btn_export)
         
         self.cb_incl_img = QCheckBox(cw)
         self.cb_incl_img.setChecked(True)
@@ -169,6 +194,16 @@ class MainWindow(QMainWindow):
         self.cb_incl_graph.setChecked(True)
         self.cb_incl_graph.setText('include graph image')
         layout_export_ctrl.addWidget(self.cb_incl_graph)
+
+        sep = QFrame(cw)
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        layout_export_ctrl.addWidget(sep)
+
+        btn_add_to_db = QPushButton(cw)
+        btn_add_to_db.setText('Add to DB..')
+        btn_add_to_db.clicked.connect(self.handle_btn_add_to_db_clicked)
+        layout_export_ctrl.addWidget(btn_add_to_db)
 
 
         ### statusbar
@@ -215,12 +250,12 @@ class MainWindow(QMainWindow):
     ##############
     def reset_ui(self):
         self.x = self.y = -1
-        self.cmb_mode.setCurrentIndex(0)
+        self.error_map = None
+        self.error_map_ref_spectrum = []
+        self.error_map_use_gradient = False
+        self.tabs_img_ctrl.setCurrentIndex(0)
         self.sl_lambda.setValue(0)
-        self.sl_lambda.setVisible(False)
-        self.lbl_lambda.setText('')
-        self.cmb_reference.setVisible(False)
-        self.cb_similarity_gradient.setVisible(False)
+        self.lbl_lambda.setText(self.get_lambda_slider_text(0))
         if self.cube is not None:
             if len(self.cube.shape) > 2:
                 self.sl_lambda.setMaximum(self.cube.shape[2])
@@ -229,29 +264,18 @@ class MainWindow(QMainWindow):
     def update_image_label(self):
         img = None
         # handle img checkbox and lambda slider
-        if self.cmb_mode.currentData() == DisplayMode.RGB:
-            self.sl_lambda.setVisible(False)
-            self.lbl_lambda.setText('')
-            self.cmb_reference.setVisible(False)
-            self.cb_similarity_gradient.setVisible(False)
+        if self.tabs_img_ctrl.currentIndex() == 0:
             if self.rgb is not None:
                 img = self.rgb
 
-        elif self.cmb_mode.currentData() == DisplayMode.LAYERS:
-            self.sl_lambda.setVisible(True)
-            self.cmb_reference.setVisible(False)
-            self.cb_similarity_gradient.setVisible(False)
+        elif self.tabs_img_ctrl.currentIndex() == 1:
             layer = self.sl_lambda.value()
             if self.cube is not None:
                 if 0 <= layer < self.cube.shape[2]:
                     img = self.cube[:, :, layer]
-                    self.lbl_lambda.setText('%.1fnm' % specim.lambda_space[layer])
+                    self.lbl_lambda.setText(self.get_lambda_slider_text(layer))
 
-        elif self.cmb_mode.currentData() == DisplayMode.SIMILARITY:
-            self.sl_lambda.setVisible(False)
-            self.lbl_lambda.setText('')
-            self.cmb_reference.setVisible(True)
-            self.cb_similarity_gradient.setVisible(True)
+        elif self.tabs_img_ctrl.currentIndex() == 2:
             ref_spec = None
             if self.cmb_reference.currentData() == -1:
                 if self.spectrum is not None:
@@ -260,16 +284,18 @@ class MainWindow(QMainWindow):
                 ref_spec = self.anal.db[self.cmb_reference.currentData()]['spectrum']
             if ref_spec is not None and self.cube is not None:
                 # do we have to recompute the similarity map?
-                if list(ref_spec) != list(self.similarity_ref_spectrum) \
-                        or self.cb_similarity_gradient.isChecked() != self.similarity_use_gradient:
-                    self.similarity_ref_spectrum = ref_spec
-                    self.similarity_use_gradient = self.cb_similarity_gradient.isChecked()
-                    sim_map = self.anal.compare_cube_to_spectrum(self.cube,
-                                                                 ref_spec,
-                                                                 use_gradient=self.cb_similarity_gradient.isChecked())
-                    cm = plt.get_cmap('viridis')
-                    self.similarity_map = cm(sim_map)[:, :, :3]
-                img = self.similarity_map
+                if list(ref_spec) != list(self.error_map_ref_spectrum) \
+                        or self.cb_similarity_gradient.isChecked() != self.error_map_use_gradient:
+                    self.error_map_ref_spectrum = ref_spec
+                    self.error_map_use_gradient = self.cb_similarity_gradient.isChecked()
+                    self.error_map = self.anal.compare_cube_to_spectrum(self.cube,
+                                                                        ref_spec,
+                                                                        use_gradient=self.cb_similarity_gradient.isChecked())
+
+                err_map_t = self.error_map.copy()
+                t = (100-self.sl_sim_t.value())/100*err_map_t.max()
+                err_map_t[err_map_t > t] = t
+                img = self.visualize_error_map(err_map_t)
 
 
         if img is not None:
@@ -395,16 +421,68 @@ class MainWindow(QMainWindow):
     def export_image(self):
         expdir = os.path.dirname(self.rawfile)
         basename = os.path.basename(self.rawfile).split('.')[0]
-        if self.cmb_mode.currentData() == DisplayMode.RGB:
+        if self.tabs_img_ctrl.currentIndex() == 0:
             suffix = 'rgb'
-        elif self.cmb_mode.currentData() == DisplayMode.LAYERS:
+        elif self.tabs_img_ctrl.currentIndex() == 1:
             suffix = self.lbl_lambda.text()
+        elif self.tabs_img_ctrl.currentIndex() == 2:
+            if self.cmb_reference.currentData() == -1:
+                suffix = 'sim(%d,%d)' % (self.x, self.y)
+            else:
+                suffix = 'sim(%s)' % self.cmb_reference.currentText()
         expfile = os.path.join(expdir, "%s_%s.png" % (basename, suffix))
 
         fileName, _ = QFileDialog.getSaveFileName(None, "Export image", expfile, "All Files (*)")
         if fileName:
             self.lbl_img.pixmap().save(fileName)
 
+    def handle_btn_add_to_db_clicked(self):
+        if self.spectrum is not None:
+            name, ok = QInputDialog.getText(self,
+                                            'Add spectrum to database',
+                                            'sample name: ')
+            if ok and name:
+                if name in [n['name'] for n in self.anal.db]:
+                    answer = QMessageBox.question(self,
+                                                  'Name already exists!',
+                                                  'A sample with the name %s already exists in the database. Overwrite?' % name
+                                                  )
+                    if answer == QMessageBox.Yes:
+                        self.anal.add_to_db(name, self.spectrum)
+                        self.anal.save_db()
+                        self.cmb_reference.addItem(name, len(self.anal.db) - 1)
+
+                else:
+                    self.anal.add_to_db(name, self.spectrum)
+                    self.anal.save_db()
+                    self.cmb_reference.addItem(name, len(self.anal.db)-1)
+
+
+
+    ###########
+    # analysis
+    ###########
+    def handle_action_create_db(self):
+        dirname, _ = QFileDialog.getExistingDirectory(None, "Select root directory for database creation", "")
+        if dirname:
+            Analysis.create_database(dirname, True)
+
+    def handle_action_load_db(self):
+        filename, _ = QFileDialog.getOpenFileName(None, "Select file containing reference spectra",
+                                                  "", "json files (*.json)")
+        if filename:
+            self.anal.load_db(filename)
+
+    # def match_cube(self):
+    #     vis_dir = os.path.join(os.path.dirname(self.rawfile), '..', 'pigment_maps')
+    #     self.anal.compare_cube_to_db(self.cube,
+    #                                  use_gradient=False,
+    #                                  squared_errs=True,
+    #                                  vis_dir=vis_dir)
+
+    ###########
+    # helpers
+    ###########
     def draw_cross(self, img_in: np.array, x, y, size=5,
                    color_h=(0, 1, 0), color_v=(1, 0, 0), color_c=(0, 0, 1)):
         """
@@ -429,26 +507,16 @@ class MainWindow(QMainWindow):
             print('warning: invalid x and y given to draw_cross. returning original image.')
         return img
 
-    ###########
-    # analysis
-    ###########
-    def handle_action_create_db(self):
-        dirname, _ = QFileDialog.getExistingDirectory(None, "Select root directory for database creation", "")
-        if dirname:
-            Analysis.create_database(dirname, True)
+    def get_lambda_slider_text(self, layer_idx):
+        return '%.1fnm' % specim.lambda_space[layer_idx]
 
-    def handle_action_load_db(self):
-        filename, _ = QFileDialog.getOpenFileName(None, "Select file containing reference spectra",
-                                                  "", "json files (*.json)")
-        if filename:
-            self.anal.load_db(filename)
+    def visualize_error_map(self, error_map):
+        # invert and map to [0, 1]:
+        similarity_map = 1 - (error_map / error_map.max())
+        # apply color map
+        cm = plt.get_cmap('viridis')
+        return cm(similarity_map)[:, :, :3]
 
-    def match_cube(self):
-        vis_dir = os.path.join(os.path.dirname(self.rawfile), '..', 'pigment_maps')
-        self.anal.compare_cube_to_db(self.cube,
-                                     use_gradient=False,
-                                     squared_errs=True,
-                                     vis_dir=vis_dir)
 
 
 # main
