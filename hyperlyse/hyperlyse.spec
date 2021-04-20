@@ -1,10 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+
 block_cipher = None
 
 
 a = Analysis(['main.py'],
-             pathex=['E:\\CVL_offline\\hyperlyse\\hyperlyse'],
+             pathex=['E:\\CVL_offline\\_DEV\\hyperlyse\\hyperlyse'],
              binaries=[],
              datas=[('Worco_medium_poster_spectra-db.json', '.'), ('startup.png', '.')],
              hiddenimports=[],

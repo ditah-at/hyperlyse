@@ -75,8 +75,7 @@ def read(raw_file, verbose=False):
             #f.set_figwidth('20')
             plt.show()
 
-
-        refl = raw_data*0
+        refl = raw_data * 0
         # use mean?
         # for i in range(bands):
         #     refl[:, i, :] = (raw_data[:, i, :]-dref[i]) / (wref[i]-dref[i])

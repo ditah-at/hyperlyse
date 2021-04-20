@@ -9,9 +9,17 @@ from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget
 import matplotlib.image
 from matplotlib import pyplot as plt
 from hyperlyse import specim, Analysis, PlotCanvas
-
+import collections
 
 # config
+__version__ = "1.1"
+INFOTEXT = "\n".join(["Hyperlyse",
+                      "Version: %s" % __version__,
+                      "Author: Simon Brenner",
+                      "Institution: Computer Vision Lab, TU Wien",
+                      "License: CC-BY-NC-SA"])
+
+
 DEFAULT_DB_FILE = 'Worco_medium_poster_spectra-db.json'
 
 
@@ -37,7 +45,7 @@ class MainWindow(QMainWindow):
         ##########
         # setup ui
         ##########
-        self.setWindowTitle('Hyperlyse')
+        self.setWindowTitle('Hyperlyse v%s' % __version__)
 
         ### central widget and outer layout
         cw = QWidget(self)
@@ -182,7 +190,7 @@ class MainWindow(QMainWindow):
 
         btn_export = QPushButton(cw)
         btn_export.setText('Export Spectrum')
-        btn_export.clicked.connect(self.export_spectrum)
+        btn_export.clicked.connect(self.handle_action_export_spectrum)
         layout_export_ctrl.addWidget(btn_export)
         
         self.cb_incl_img = QCheckBox(cw)
@@ -226,6 +234,10 @@ class MainWindow(QMainWindow):
         self.action_save_img.setEnabled(False)
         self.action_save_img.triggered.connect(self.export_image)
 
+        action_export_spectrum = menu_file.addAction('&Export spectrum...')
+        action_export_spectrum.triggered.connect(self.handle_action_export_spectrum)
+
+
         # analysis menu
         menu_analysis = menubar.addMenu('&Analysis')
         # self.action_match_cube = menu_analysis.addAction('&Match whole image with database')
@@ -238,12 +250,24 @@ class MainWindow(QMainWindow):
         action_create_db = submenu_db.addAction('&Create new database...')
         action_create_db.triggered.connect(self.handle_action_create_db)
 
+        # info menu
+        menu_info = menubar.addMenu('&?')
+        action_info = menu_info.addAction('&Show info')
+        action_info.triggered.connect(self.show_info)
 
         # additional windows (define here for better readability only)
         self.match_point_win = None
 
         # finito!
         self.show()
+
+    def show_info(self):
+        mb = QMessageBox(QMessageBox.Information,
+                         "About this software",
+                         INFOTEXT,
+                         QMessageBox.Close)
+        mb.exec()
+
 
     ##############
     # UI updates
@@ -396,27 +420,93 @@ class MainWindow(QMainWindow):
             self.update_image_label()
             self.update_spectrum_plot()
 
-    def export_spectrum(self):
+    def handle_action_export_spectrum(self):
         if self.spectrum is not None:
             expdir = os.path.dirname(self.rawfile)
             basename = os.path.basename(self.rawfile).split('.')[0]
-            expfile = os.path.join(expdir, "%s_(%d,%d).txt" % (basename, self.x, self.y))
+            expfile = os.path.join(expdir, "%s_(%d,%d).jdx" % (basename, self.x, self.y))
 
-            fileName, _ = QFileDialog.getSaveFileName(None, "Save spectrum", expfile, "All Files (*)")
-
+            fileName, _ = QFileDialog.getSaveFileName(None, "Save spectrum", expfile,
+                                                      "JCAMP-DX (*.jdx *.dx *jcm);;Plain x,y pairs (*.dpt *.csv *.txt )")
             if fileName:
-                data_x = np.float32(specim.lambda_space)
-                data = np.transpose([data_x, self.spectrum])
-                np.savetxt(fileName, data, fmt='%.4f', delimiter=', ')
+                valid = False
+                if os.path.splitext(fileName)[1] in ['.dx', '.jdx', '.jcm']:
+                    self.export_jcamp(fileName)
+                    valid = True
+                elif os.path.splitext(fileName)[1] in ['.dpt', '.txt', '.csv']:
+                    self.export_dpt(fileName)
+                    valid = True
 
-                if self.cb_incl_img.isChecked() and self.rgb is not None:
-                    img = self.draw_cross(self.rgb, self.x, self.y)
-                    base, ext = os.path.splitext(fileName)
-                    matplotlib.image.imsave(base+'.png', img)
+                if valid:
+                    if self.cb_incl_img.isChecked() and self.rgb is not None:
+                        img = self.draw_cross(self.rgb, self.x, self.y)
+                        base, ext = os.path.splitext(fileName)
+                        matplotlib.image.imsave(base + '.png', img)
 
-                if self.cb_incl_graph.isChecked():
-                    base, ext = os.path.splitext(fileName)
-                    self.plot.save(base+'_graph.png')
+                    if self.cb_incl_graph.isChecked():
+                        base, ext = os.path.splitext(fileName)
+                        self.plot.save(base + '_graph.png')
+                else:
+                    print('warning: invalid file extension given. spectrum not saved. allowed: '
+                          '.dpt, .txt (plain comma-separated x,y values), .dx, .jdx, .jcm (JCAMP-DX)')
+
+    def export_dpt(self, fileName):
+        data_x = np.float32(specim.lambda_space)
+        data = np.transpose([data_x, self.spectrum])
+        np.savetxt(fileName, data, fmt='%.4f', delimiter=',')
+
+    def export_jcamp(self, fileName):
+        # prepare output file content
+        data = collections.OrderedDict()  # in jcamp, order of elements is kind of important..
+        data['##TITLE'] = '%s, position (%d, %d)' % (os.path.basename(self.rawfile).split('.')[0], self.x, self.y)
+        data['##JCAMP-DX'] = "5.1"
+        data['##DATA TYPE'] = "UV/VIS SPECTRUM"
+        data['##ORIGIN'] = "CIMA"
+        data['##OWNER'] = "CIMA"
+
+        data['##DATA CLASS'] = 'XYDATA'
+        data['##SPECTROMETER/DATASYSTEM'] = "SpecimIQ/Hyperlyse%s" % __version__
+        ##INSTRUMENTAL PARAMETERS=(STRING).This optional field is a list of pertinent instrumental settings. Only
+        # settings which are essential for applications should be included.
+        data['##SAMPLING PROCEDURE'] = "MODE=reflection"
+        # First entry in this field should be MODE of observation (transmission,
+        # specular reflection, PAS, matrix isolation, photothermal beam deflection, etc.), followed by appropriate
+        # additional information, i.e., name and model of accessories, cell thickness, and window material for
+        # fixed liquid cells, ATR plate material, angle and cone of incidence, and effective number of reflections
+        # for ATR measurements, polarization, and special modulation techniques, as discussed by Grasselli et al.
+        # data['##DATA PROCESSING'] = ""
+        # (TEXT). Description of background correction, smoothing, subtraction,
+        # deconvolution procedures, apodization function, zero - fill, or other data processing, together
+        # with reference to original spectra used for subtractions.
+
+        vx = np.float32(specim.lambda_space)
+        vy = self.spectrum
+
+        data['##DELTAX'] = (vx[-1] - vx[0]) / (len(vx) - 1)
+        data['##XUNITS'] = "NANOMETERS"
+        data['##YUNITS'] = "REFLECTANCE"
+        data['##XFACTOR'] = 1.0
+        data['##YFACTOR'] = 1.0
+
+        data['##FIRSTX'] = vx[0]
+        data['##LASTX'] = vx[-1]
+        data['##NPOINTS'] = len(vx)
+        data['##FIRSTY'] = vy[0]
+        data['##XYDATA'] = [xy for xy in zip(vx, vy)]
+
+        data['##END'] = ''
+
+        # write the file
+        if not os.path.isdir(os.path.dirname(fileName)):
+            os.makedirs(os.path.dirname(fileName))
+        with open(fileName, 'w') as f:
+            for k, v in data.items():
+                if k == "##XYDATA":
+                    f.write('##XYDATA= (X++(Y..Y))\n')
+                    for x, y in v:
+                        f.write('%s %s\n' % (str(x), str(y)))
+                else:
+                    f.write('%s= %s\n' % (k.replace('_', ' '), str(v)))
 
     def export_image(self):
         expdir = os.path.dirname(self.rawfile)
@@ -463,7 +553,7 @@ class MainWindow(QMainWindow):
     # analysis
     ###########
     def handle_action_create_db(self):
-        dirname, _ = QFileDialog.getExistingDirectory(None, "Select root directory for database creation", "")
+        dirname = QFileDialog.getExistingDirectory(None, "Select root directory for database creation", "")
         if dirname:
             Analysis.create_database(dirname, True)
 
