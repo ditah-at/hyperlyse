@@ -5,11 +5,13 @@ from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog, QMessageBox
 from PyQt5.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QFrame
-from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QLayout, QSizePolicy
+from PyQt5.QtWidgets import QSpacerItem, QDesktopWidget
 import matplotlib.image
 from matplotlib import pyplot as plt
 from hyperlyse import specim, Analysis, PlotCanvas
 import collections
+from skimage.transform import rescale
 
 # config
 __version__ = "1.1"
@@ -37,7 +39,7 @@ class MainWindow(QMainWindow):
         self.y = -1
         self.spectrum = None
         self.rawfile = None
-
+        self.zoom = 1.0
         self.anal = Analysis()
         self.anal.load_db(DEFAULT_DB_FILE)
 
@@ -66,18 +68,34 @@ class MainWindow(QMainWindow):
         self.lbl_img.setAcceptDrops(True)
         self.lbl_img.dragEnterEvent = self.handle_drag_enter
         self.lbl_img.dropEvent = self.handle_drop
-        layout_img.addWidget(self.lbl_img)
+        scroll_img = QScrollArea(cw)
+        scroll_img.setWidget(self.lbl_img)
+        layout_img.addWidget(scroll_img)
+
+        layout_zoom = QHBoxLayout(cw)
+        layout_img.addLayout(layout_zoom)
+        lbl_zoom = QLabel('Zoom:')
+        lbl_zoom.setFixedWidth(40)
+        layout_zoom.addWidget(lbl_zoom)
+        self.cmb_zoom = QComboBox(cw)
+        self.cmb_zoom.addItem('100%', 1)
+        self.cmb_zoom.addItem('200%', 2)
+        self.cmb_zoom.addItem('400%', 4)
+        self.cmb_zoom.currentIndexChanged.connect(self.update_image_label)
+        layout_zoom.addWidget(self.cmb_zoom)
 
         # image controls
         layout_img_ctrl = QHBoxLayout(cw)
         layout_img.addLayout(layout_img_ctrl)
 
         lbl_img_display = QLabel(cw)
-        lbl_img_display.setText('Display:')
+        lbl_img_display.setText('Mode:')
+        lbl_img_display.setFixedWidth(40)
         layout_img_ctrl.addWidget(lbl_img_display)
 
         self.tabs_img_ctrl = QTabWidget(cw)
         self.tabs_img_ctrl.currentChanged.connect(self.update_image_label)
+        self.tabs_img_ctrl.setSizePolicy(QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum))
         layout_img_ctrl.addWidget(self.tabs_img_ctrl)
 
         # RGB -> index 0
@@ -259,6 +277,8 @@ class MainWindow(QMainWindow):
         self.match_point_win = None
 
         # finito!
+        screensize = QDesktopWidget().availableGeometry(self).size() * 0.9
+        self.resize(min(screensize.width(), 1064), min(screensize.height(), 652))
         self.show()
 
     def show_info(self):
@@ -326,6 +346,9 @@ class MainWindow(QMainWindow):
             if self.x != -1 != self.y:
                 img = self.draw_cross(img, self.x, self.y)
 
+            scale = self.cmb_zoom.currentData()
+            img = rescale(img, (scale, scale, 1), order=0)
+
             # float to normalized 8 bit
             img = np.uint8(img * (255 / img.max()))
             s = img.shape
@@ -341,6 +364,7 @@ class MainWindow(QMainWindow):
             if qImg is not None:
                 qPixmap = QPixmap.fromImage(qImg)
                 self.lbl_img.setPixmap(qPixmap)
+                self.lbl_img.resize(width, height)
 
     def update_spectrum_plot(self):
         search_enabled = self.cb_spectra_search.isChecked()
@@ -410,8 +434,8 @@ class MainWindow(QMainWindow):
     # image & spectra operations
     #############################
     def handle_click_on_image(self, event):
-        self.x = event.pos().x()
-        self.y = event.pos().y()
+        self.x = int(event.pos().x() / self.cmb_zoom.currentData())
+        self.y = int(event.pos().y() / self.cmb_zoom.currentData())
 
         print("x=%d, y=%d" % (self.x, self.y))
 
