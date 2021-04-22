@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QC
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QSizePolicy, QDesktopWidget
 import matplotlib.image
 from matplotlib import pyplot as plt
-from hyperlyse import specim, Analysis, PlotCanvas
+from hyperlyse import SpecimIQ, Analysis, PlotCanvas
 import collections
 
 # config
@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
         self.sl_nspectra.setEnabled(search_enabled)
 
         if self.spectrum is not None:
-            self.plot.plot(specim.lambda_space,
+            self.plot.plot(SpecimIQ.lambda_space,
                            self.spectrum,
                            label='query',
                            hold=False)
@@ -392,7 +392,7 @@ class MainWindow(QMainWindow):
                                                    use_gradient=self.cb_gradient.isChecked(),
                                                    squared_errs=self.cb_squared.isChecked())
                 for s in result[:self.sl_nspectra.value()]:
-                    self.plot.plot(specim.lambda_space,
+                    self.plot.plot(SpecimIQ.lambda_space,
                                    s['spectrum'],
                                    label='%s (e=%.3f)' % (s['name'], s['error']),
                                    linewidth=1,
@@ -403,13 +403,13 @@ class MainWindow(QMainWindow):
     ##################
     def load_data(self, filename):
         try:
-            self.cube = specim.read(filename)
-            self.rgb = specim.cube2rgb(self.cube)
+            self.cube = SpecimIQ.read(filename)
+            self.rgb = SpecimIQ.cube2rgb(self.cube)
             self.reset_ui()
             self.update_image_label()
             self.rawfile = filename
             self.action_save_img.setEnabled(True)
-            self.action_match_cube.setEnabled(True)
+            #self.action_match_cube.setEnabled(True)
         except Exception as e:
             print("Error loading file: ")
             print(e)
@@ -447,7 +447,7 @@ class MainWindow(QMainWindow):
             self.y = int(event.pos().y() / self.cmb_zoom.currentData())
             print("Selected point: (%d, %d)" % (self.x, self.y))
 
-            if 0 <= self.x < specim.cols and 0 <= self.y < specim.rows and self.cube is not None:
+            if 0 <= self.x < SpecimIQ.cols and 0 <= self.y < SpecimIQ.rows and self.cube is not None:
                 self.spectrum = self.cube[self.y, self.x, :]
                 self.update_image_label()
                 self.update_spectrum_plot()
@@ -525,7 +525,7 @@ class MainWindow(QMainWindow):
                           '.dpt, .txt (plain comma-separated x,y values), .dx, .jdx, .jcm (JCAMP-DX)')
 
     def export_dpt(self, fileName):
-        data_x = np.float32(specim.lambda_space)
+        data_x = np.float32(SpecimIQ.lambda_space)
         data = np.transpose([data_x, self.spectrum])
         np.savetxt(fileName, data, fmt='%.4f', delimiter=',')
 
@@ -553,7 +553,7 @@ class MainWindow(QMainWindow):
         # deconvolution procedures, apodization function, zero - fill, or other data processing, together
         # with reference to original spectra used for subtractions.
 
-        vx = np.float32(specim.lambda_space)
+        vx = np.float32(SpecimIQ.lambda_space)
         vy = self.spectrum
 
         data['##DELTAX'] = (vx[-1] - vx[0]) / (len(vx) - 1)
@@ -672,7 +672,7 @@ class MainWindow(QMainWindow):
         return img
 
     def get_lambda_slider_text(self, layer_idx):
-        return '%.1fnm' % specim.lambda_space[layer_idx]
+        return '%.1fnm' % SpecimIQ.lambda_space[layer_idx]
 
     def visualize_error_map(self, error_map):
         # invert and map to [0, 1]:
