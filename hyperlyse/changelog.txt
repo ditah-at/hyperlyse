@@ -1,0 +1,11 @@
+feature requests
+-----
+* R004 make spectra exports perfectly compatible with exports from SpecimIQ Studio
+
+v1.1
+-----
+* R001 export image with marked samplepoint together with spectrum
+* R002 zoom (for precise point selection)
+* R003 export to JCAMP format
+* spectral databases and spectra comparison features (experimental)
+* advanced image view modes

@@ -12,7 +12,7 @@ lambda_delta = (lambda_max - lambda_min) / bands
 lambda_space = np.linspace(lambda_min, lambda_max, bands)
 
 def cube2rgb(cube):
-    # wavelengths of red, green, blue
+    # wavelengths of red, green, blue (standard settings in SpecimIQ Studio)
     r = 598
     g = 548
     b = 449

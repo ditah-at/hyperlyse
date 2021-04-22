@@ -1,8 +1,0 @@
-open
------
-
-added in v1.1
------
-001. export image with marked samplepoint together with spectrum
-002. zoom (for precise point selection) --> https://doc.qt.io/qt-5/qtwidgets-widgets-imageviewer-example.html
-003. export to JCAMP format

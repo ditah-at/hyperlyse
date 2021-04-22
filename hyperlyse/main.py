@@ -5,13 +5,11 @@ from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog, QMessageBox
 from PyQt5.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QFrame
-from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QLayout, QSizePolicy
-from PyQt5.QtWidgets import QSpacerItem, QDesktopWidget
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QSizePolicy, QDesktopWidget
 import matplotlib.image
 from matplotlib import pyplot as plt
 from hyperlyse import specim, Analysis, PlotCanvas
 import collections
-from skimage.transform import rescale
 
 # config
 __version__ = "1.1"
@@ -39,7 +37,13 @@ class MainWindow(QMainWindow):
         self.y = -1
         self.spectrum = None
         self.rawfile = None
+
         self.zoom = 1.0
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.drag_start_hs_v = 0
+        self.drag_start_vs_v = 0
+
         self.anal = Analysis()
         self.anal.load_db(DEFAULT_DB_FILE)
 
@@ -68,9 +72,12 @@ class MainWindow(QMainWindow):
         self.lbl_img.setAcceptDrops(True)
         self.lbl_img.dragEnterEvent = self.handle_drag_enter
         self.lbl_img.dropEvent = self.handle_drop
-        scroll_img = QScrollArea(cw)
-        scroll_img.setWidget(self.lbl_img)
-        layout_img.addWidget(scroll_img)
+        self.scroll_img = QScrollArea(cw)
+        self.scroll_img.setWidget(self.lbl_img)
+        self.scroll_img.mousePressEvent = self.handle_click_on_image_scroll
+        self.scroll_img.mouseMoveEvent = self.handle_move_on_image
+        self.scroll_img.wheelEvent = self.handle_wheel_on_image
+        layout_img.addWidget(self.scroll_img)
 
         layout_zoom = QHBoxLayout(cw)
         layout_img.addLayout(layout_zoom)
@@ -81,6 +88,8 @@ class MainWindow(QMainWindow):
         self.cmb_zoom.addItem('100%', 1)
         self.cmb_zoom.addItem('200%', 2)
         self.cmb_zoom.addItem('400%', 4)
+        self.cmb_zoom.addItem('800%', 8)
+        self.cmb_zoom.addItem('1600%', 16)
         self.cmb_zoom.currentIndexChanged.connect(self.update_image_label)
         layout_zoom.addWidget(self.cmb_zoom)
 
@@ -346,9 +355,6 @@ class MainWindow(QMainWindow):
             if self.x != -1 != self.y:
                 img = self.draw_cross(img, self.x, self.y)
 
-            scale = self.cmb_zoom.currentData()
-            img = rescale(img, (scale, scale, 1), order=0)
-
             # float to normalized 8 bit
             img = np.uint8(img * (255 / img.max()))
             s = img.shape
@@ -363,8 +369,10 @@ class MainWindow(QMainWindow):
 
             if qImg is not None:
                 qPixmap = QPixmap.fromImage(qImg)
+                scale = self.cmb_zoom.currentData()
+                qPixmap = qPixmap.scaled(width*scale, height*scale, transformMode=Qt.FastTransformation)
                 self.lbl_img.setPixmap(qPixmap)
-                self.lbl_img.resize(width, height)
+                self.lbl_img.resize(width*scale, height*scale)
 
     def update_spectrum_plot(self):
         search_enabled = self.cb_spectra_search.isChecked()
@@ -434,15 +442,57 @@ class MainWindow(QMainWindow):
     # image & spectra operations
     #############################
     def handle_click_on_image(self, event):
-        self.x = int(event.pos().x() / self.cmb_zoom.currentData())
-        self.y = int(event.pos().y() / self.cmb_zoom.currentData())
+        if event.buttons() == Qt.LeftButton:
+            self.x = int(event.pos().x() / self.cmb_zoom.currentData())
+            self.y = int(event.pos().y() / self.cmb_zoom.currentData())
+            print("Selected point: (%d, %d)" % (self.x, self.y))
 
-        print("x=%d, y=%d" % (self.x, self.y))
+            if 0 <= self.x < specim.cols and 0 <= self.y < specim.rows and self.cube is not None:
+                self.spectrum = self.cube[self.y, self.x, :]
+                self.update_image_label()
+                self.update_spectrum_plot()
+        else:
+            event.ignore()
 
-        if 0 <= self.x < specim.cols and 0 <= self.y < specim.rows and self.cube is not None:
-            self.spectrum = self.cube[self.y, self.x, :]
-            self.update_image_label()
-            self.update_spectrum_plot()
+    def handle_click_on_image_scroll(self, event):
+        if event.buttons() == Qt.RightButton:
+            self.drag_start_x = event.pos().x()
+            self.drag_start_y = event.pos().y()
+            self.drag_start_hs_v = self.scroll_img.horizontalScrollBar().value()
+            self.drag_start_vs_v = self.scroll_img.verticalScrollBar().value()
+        else:
+            event.ignore()
+
+    def handle_move_on_image(self, event):
+        if event.buttons() == Qt.RightButton:
+            hs_max = self.scroll_img.horizontalScrollBar().maximum()
+            vs_max = self.scroll_img.verticalScrollBar().maximum()
+            hs_min = self.scroll_img.horizontalScrollBar().minimum()
+            vs_min = self.scroll_img.verticalScrollBar().minimum()
+
+            dh = (self.drag_start_x - event.x())
+            dv = (self.drag_start_y - event.y())
+
+            self.scroll_img.horizontalScrollBar().setValue(min(hs_max, max(hs_min, self.drag_start_hs_v+dh)))
+            self.scroll_img.verticalScrollBar().setValue(min(vs_max, max(vs_min, self.drag_start_vs_v+dv)))
+
+    def handle_wheel_on_image(self, event):
+        if self.scroll_img.horizontalScrollBar().maximum() > 0:
+            hs_r = self.scroll_img.horizontalScrollBar().value() / self.scroll_img.horizontalScrollBar().maximum()
+        else:
+            hs_r = 0.5
+        if self.scroll_img.verticalScrollBar().maximum() > 0:
+            vs_r = self.scroll_img.verticalScrollBar().value() / self.scroll_img.verticalScrollBar().maximum()
+        else:
+            vs_r = 0.5
+        self.cmb_zoom.setCurrentIndex(max(0,
+                                          min(self.cmb_zoom.count()-1,
+                                              self.cmb_zoom.currentIndex()+np.sign(event.angleDelta().y())
+                                              )
+                                          )
+                                      )
+        self.scroll_img.horizontalScrollBar().setValue(int(self.scroll_img.verticalScrollBar().maximum() * hs_r))
+        self.scroll_img.verticalScrollBar().setValue(int(self.scroll_img.verticalScrollBar().maximum() * vs_r))
 
     def handle_action_export_spectrum(self):
         if self.spectrum is not None:
