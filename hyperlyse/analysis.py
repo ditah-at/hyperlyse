@@ -1,7 +1,7 @@
 import os
 import json
 import numpy as np
-import hyperlyse.specim as specim
+from hyperlyse import SpecimIQ
 from matplotlib import pyplot as plt
 
 
@@ -35,13 +35,13 @@ class Analysis:
                 file_hsdata = os.path.join(cur_dir, 'capture', img_name+'.raw')
                 cube = None
                 try:
-                    cube = specim.read(file_hsdata)
+                    cube = SpecimIQ.read(file_hsdata)
                 except:
                     print('Error while trying to read HS data from %s. Skipping.' % file_hsdata)
                     continue
 
                 # for visualization purposes..
-                rgb = specim.cube2rgb(cube)
+                rgb = SpecimIQ.cube2rgb(cube)
                 fig, axs = plt.subplots(1, 3, figsize=(15, 5))
                 fig.suptitle('Spectra extracted from %s' % img_name)
 
@@ -54,13 +54,10 @@ class Analysis:
                     crop_to_label = cube[y[0]:y[1], x[0]:x[1]]
                     mean_spectrum = crop_to_label.mean((0, 1))
                     db_spectra.append({'name': lab['label'],
-                                    'spectrum': mean_spectrum.tolist(),
-                                    'lambda_min': specim.lambda_min,
-                                    'lambda_max': specim.lambda_max,
-                                    'lambda_delta': specim.lambda_delta})
+                                       'spectrum': mean_spectrum.tolist()})
 
                     if visualize:
-                        axs[1].plot(specim.lambda_space, mean_spectrum, label=lab['label'])
+                        axs[1].plot(SpecimIQ.lambda_space, mean_spectrum, label=lab['label'])
                         rect_color = [0, 1, 0]
                         rgb[y[0]:y[1], x[0]] = rect_color
                         rgb[y[0]:y[1], x[1]] = rect_color
@@ -100,14 +97,8 @@ class Analysis:
                     s['spectrum'] = spectrum
         else:
             # insert new spectrum
-            sample = {
-                'spectrum': spectrum,
-                'name': name,
-                'lambda_min': specim.lambda_min,
-                'lambda_max': specim.lambda_max,
-                'lambda_delta': specim.lambda_delta
-            }
-            self.db.append(sample)
+            self.db.append({'name': name,
+                            'spectrum': spectrum})
 
 
     def search_spectrum(self, query_spectrum, use_gradient=False, squared_errs=True):
