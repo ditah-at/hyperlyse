@@ -1,6 +1,14 @@
 feature requests
 -----
 * R004 make spectra exports perfectly compatible with exports from SpecimIQ Studio
+* R005 200% zoom level by default (--> make windows larger upon startup, make image fill whole area
+* R006 no automatic scaling of y-axis
+* R007 PCA
+* R008 load HSI files other than specim IQ (specifically: .envi)
+
+bugs & things that should be improved
+-----
+* B001 smoother zooming (smaller steps)
 
 v1.1
 -----
