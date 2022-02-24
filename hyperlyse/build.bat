@@ -1,1 +1,1 @@
-pyinstaller --add-data "Worco_medium_poster_spectra-db.json;." --add-data "startup.png;." --distpath "../dist" --workpath "../build" --name hyperlyse main.py
+pyinstaller --noconsole --add-data "Worco_medium_poster_spectra-db.json;." --add-data "startup.png;." --distpath "../dist" --workpath "../build" --name hyperlyse main.py
