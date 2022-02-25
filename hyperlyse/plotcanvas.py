@@ -1,6 +1,6 @@
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from PyQt5.QtWidgets import QSizePolicy
+from PyQt6.QtWidgets import QSizePolicy
 
 class PlotCanvas(FigureCanvas):
     def __init__(self, parent=None, width=5, height=4, dpi=100):
@@ -10,7 +10,7 @@ class PlotCanvas(FigureCanvas):
         FigureCanvas.__init__(self, self.figure)
         self.setParent(parent)
 
-        FigureCanvas.setSizePolicy(self, QSizePolicy.Expanding, QSizePolicy.Expanding)
+        FigureCanvas.setSizePolicy(self, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         FigureCanvas.updateGeometry(self)
 
     def plot(self, x, y, label='', linewidth=2, hold=False):
@@ -18,6 +18,7 @@ class PlotCanvas(FigureCanvas):
             self.figure.clear()
             self.ax = self.figure.add_subplot(111)
         self.ax.plot(x, y, label=label, linewidth=linewidth)
+        self.ax.set_ylim(0,1)
         if label:
             self.ax.legend()
         self.draw()

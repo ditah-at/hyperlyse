@@ -1,18 +1,18 @@
 import sys
 import os
 import numpy as np
-from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog, QMessageBox
-from PyQt5.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QFrame
-from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QSizePolicy, QDesktopWidget
+from PyQt6.QtGui import QPixmap, QImage, QGuiApplication
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog, QMessageBox
+from PyQt6.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QFrame
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QSizePolicy
 import matplotlib.image
 from matplotlib import pyplot as plt
-from hyperlyse import SpecimIQ, Analysis, PlotCanvas
+from hyperlyse import SpecimIQ, Database, PlotCanvas
 import collections
 
 # config
-__version__ = "1.1"
+__version__ = "1.2"
 INFOTEXT = "\n".join(["Hyperlyse",
                       "Version: %s" % __version__,
                       "Author: Simon Brenner",
@@ -22,6 +22,7 @@ INFOTEXT = "\n".join(["Hyperlyse",
 
 DEFAULT_DB_FILE = 'Worco_medium_poster_spectra-db.json'
 
+SCROLL_SPEED = 0.01
 
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
@@ -44,8 +45,8 @@ class MainWindow(QMainWindow):
         self.drag_start_hs_v = 0
         self.drag_start_vs_v = 0
 
-        self.anal = Analysis()
-        self.anal.load_db(DEFAULT_DB_FILE)
+        self.db = Database()
+        self.db.load_db(DEFAULT_DB_FILE)
 
 
         ##########
@@ -84,14 +85,15 @@ class MainWindow(QMainWindow):
         lbl_zoom = QLabel('Zoom:')
         lbl_zoom.setFixedWidth(40)
         layout_zoom.addWidget(lbl_zoom)
-        self.cmb_zoom = QComboBox(cw)
-        self.cmb_zoom.addItem('100%', 1)
-        self.cmb_zoom.addItem('200%', 2)
-        self.cmb_zoom.addItem('400%', 4)
-        self.cmb_zoom.addItem('800%', 8)
-        self.cmb_zoom.addItem('1600%', 16)
-        self.cmb_zoom.currentIndexChanged.connect(self.update_image_label)
-        layout_zoom.addWidget(self.cmb_zoom)
+        self.sl_zoom = QSlider(cw)
+        self.sl_zoom.setOrientation(Qt.Orientation.Horizontal)
+        self.sl_zoom.setMinimum(100)
+        self.sl_zoom.setMaximum(1600)
+        self.sl_zoom.setValue(100)
+        self.sl_zoom.valueChanged.connect(self.update_image_label)
+        layout_zoom.addWidget(self.sl_zoom)
+        self.lbl_zoom = QLabel('100%')
+        layout_zoom.addWidget(self.lbl_zoom)
 
         # image controls
         layout_img_ctrl = QHBoxLayout(cw)
@@ -104,7 +106,7 @@ class MainWindow(QMainWindow):
 
         self.tabs_img_ctrl = QTabWidget(cw)
         self.tabs_img_ctrl.currentChanged.connect(self.update_image_label)
-        self.tabs_img_ctrl.setSizePolicy(QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum))
+        self.tabs_img_ctrl.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum))
         layout_img_ctrl.addWidget(self.tabs_img_ctrl)
 
         # RGB -> index 0
@@ -126,7 +128,7 @@ class MainWindow(QMainWindow):
         tab_layers.layout().addWidget(lbl_layers)
 
         self.sl_lambda = QSlider(tab_layers)
-        self.sl_lambda.setOrientation(Qt.Horizontal)
+        self.sl_lambda.setOrientation(Qt.Orientation.Horizontal)
         self.sl_lambda.valueChanged.connect(self.update_image_label)
         self.sl_lambda.setMinimumWidth(300)
         self.sl_lambda.setValue(0)
@@ -143,7 +145,7 @@ class MainWindow(QMainWindow):
 
         self.cmb_reference = QComboBox(tab_similarity)
         self.cmb_reference.addItem('SELECTED PIXEL', -1)
-        for s, i in zip(self.anal.db, range(len(self.anal.db))):
+        for s, i in zip(self.db.data, range(len(self.db.data))):
             self.cmb_reference.addItem(s['name'], i)
         self.cmb_reference.currentIndexChanged.connect(self.update_image_label)
         tab_similarity.layout().addWidget(self.cmb_reference)
@@ -159,7 +161,7 @@ class MainWindow(QMainWindow):
         tab_similarity.layout().addWidget(lbl_sim_t)
 
         self.sl_sim_t = QSlider(tab_similarity)
-        self.sl_sim_t.setOrientation(Qt.Horizontal)
+        self.sl_sim_t.setOrientation(Qt.Orientation.Horizontal)
         self.sl_sim_t.setMinimum(0)
         self.sl_sim_t.setMaximum(99)
         self.sl_sim_t.setValue(0)
@@ -201,7 +203,7 @@ class MainWindow(QMainWindow):
         self.sl_nspectra = QSlider(self)
         self.sl_nspectra.setMinimum(1)
         self.sl_nspectra.setMaximum(10)
-        self.sl_nspectra.setOrientation(Qt.Horizontal)
+        self.sl_nspectra.setOrientation(Qt.Orientation.Horizontal)
         self.sl_nspectra.setValue(3)
         self.sl_nspectra.valueChanged.connect(self.update_spectrum_plot)
         self.sl_nspectra.setEnabled(False)
@@ -231,8 +233,8 @@ class MainWindow(QMainWindow):
         layout_export_ctrl.addWidget(self.cb_incl_graph)
 
         sep = QFrame(cw)
-        sep.setFrameShape(QFrame.VLine)
-        sep.setFrameShadow(QFrame.Sunken)
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
         layout_export_ctrl.addWidget(sep)
 
         btn_add_to_db = QPushButton(cw)
@@ -286,15 +288,15 @@ class MainWindow(QMainWindow):
         self.match_point_win = None
 
         # finito!
-        screensize = QDesktopWidget().availableGeometry(self).size() * 0.9
+        screensize = QGuiApplication.screens()[0].availableSize() * 0.9
         self.resize(min(screensize.width(), 1064), min(screensize.height(), 652))
         self.show()
 
     def show_info(self):
-        mb = QMessageBox(QMessageBox.Information,
+        mb = QMessageBox(QMessageBox.Icon.Information,
                          "About this software",
                          INFOTEXT,
-                         QMessageBox.Close)
+                         QMessageBox.StandardButton.Close)
         mb.exec()
 
 
@@ -334,16 +336,16 @@ class MainWindow(QMainWindow):
                 if self.spectrum is not None:
                     ref_spec = self.spectrum
             else:
-                ref_spec = self.anal.db[self.cmb_reference.currentData()]['spectrum']
+                ref_spec = self.db.data[self.cmb_reference.currentData()]['spectrum']
             if ref_spec is not None and self.cube is not None:
                 # do we have to recompute the similarity map?
                 if list(ref_spec) != list(self.error_map_ref_spectrum) \
                         or self.cb_similarity_gradient.isChecked() != self.error_map_use_gradient:
                     self.error_map_ref_spectrum = ref_spec
                     self.error_map_use_gradient = self.cb_similarity_gradient.isChecked()
-                    self.error_map = self.anal.compare_cube_to_spectrum(self.cube,
-                                                                        ref_spec,
-                                                                        use_gradient=self.cb_similarity_gradient.isChecked())
+                    self.error_map = self.db.compare_cube_to_spectrum(self.cube,
+                                                                      ref_spec,
+                                                                      use_gradient=self.cb_similarity_gradient.isChecked())
 
                 err_map_t = self.error_map.copy()
                 t = (100-self.sl_sim_t.value())/100*err_map_t.max()
@@ -363,16 +365,19 @@ class MainWindow(QMainWindow):
             qImg = None
             if len(s) == 3:
                 if s[2] == 3:
-                    qImg = QImage(img.tobytes(), width, height, 3 * width, QImage.Format_RGB888)
+                    qImg = QImage(img.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
             else:
-                qImg = QImage(img.tobytes(), width, height, width, QImage.Format_Grayscale8)
+                qImg = QImage(img.tobytes(), width, height, width, QImage.Format.Format_Grayscale8)
 
             if qImg is not None:
                 qPixmap = QPixmap.fromImage(qImg)
-                scale = self.cmb_zoom.currentData()
-                qPixmap = qPixmap.scaled(width*scale, height*scale, transformMode=Qt.FastTransformation)
+                # handle scaling
+                self.lbl_zoom.setText(f'{self.sl_zoom.value()}%')
+                scale = self.sl_zoom.value() / 100
+                qPixmap = qPixmap.scaled(int(width*scale), int(height*scale), transformMode=Qt.TransformationMode.FastTransformation)
+                # puh, finally
                 self.lbl_img.setPixmap(qPixmap)
-                self.lbl_img.resize(width*scale, height*scale)
+                self.lbl_img.resize(int(width*scale), int(height*scale))
 
     def update_spectrum_plot(self):
         search_enabled = self.cb_spectra_search.isChecked()
@@ -388,9 +393,9 @@ class MainWindow(QMainWindow):
                            hold=False)
 
             if search_enabled:
-                result = self.anal.search_spectrum(self.spectrum,
-                                                   use_gradient=self.cb_gradient.isChecked(),
-                                                   squared_errs=self.cb_squared.isChecked())
+                result = self.db.search_spectrum(self.spectrum,
+                                                 use_gradient=self.cb_gradient.isChecked(),
+                                                 squared_errs=self.cb_squared.isChecked())
                 for s in result[:self.sl_nspectra.value()]:
                     self.plot.plot(SpecimIQ.lambda_space,
                                    s['spectrum'],
@@ -429,7 +434,7 @@ class MainWindow(QMainWindow):
         urls = e.mimeData().urls()
         if len(urls) > 1:
             print('Dropped multiple files. Loading one of them (good luck).')
-        filename = urls[0].url(QUrl.RemoveScheme)
+        filename = urls[0].url(QUrl.UrlFormattingOption.RemoveScheme)
         #remove leading slashes
         while filename.startswith('/'):
             filename = filename[1:]
@@ -442,9 +447,9 @@ class MainWindow(QMainWindow):
     # image & spectra operations
     #############################
     def handle_click_on_image(self, event):
-        if event.buttons() == Qt.LeftButton:
-            self.x = int(event.pos().x() / self.cmb_zoom.currentData())
-            self.y = int(event.pos().y() / self.cmb_zoom.currentData())
+        if event.buttons() == Qt.MouseButton.LeftButton:
+            self.x = int(event.pos().x() / self.sl_zoom.value() * 100)
+            self.y = int(event.pos().y() / self.sl_zoom.value() * 100)
             print("Selected point: (%d, %d)" % (self.x, self.y))
 
             if 0 <= self.x < SpecimIQ.cols and 0 <= self.y < SpecimIQ.rows and self.cube is not None:
@@ -455,7 +460,7 @@ class MainWindow(QMainWindow):
             event.ignore()
 
     def handle_click_on_image_scroll(self, event):
-        if event.buttons() == Qt.RightButton:
+        if event.buttons() == Qt.MouseButton.RightButton:
             self.drag_start_x = event.pos().x()
             self.drag_start_y = event.pos().y()
             self.drag_start_hs_v = self.scroll_img.horizontalScrollBar().value()
@@ -464,14 +469,14 @@ class MainWindow(QMainWindow):
             event.ignore()
 
     def handle_move_on_image(self, event):
-        if event.buttons() == Qt.RightButton:
+        if event.buttons() == Qt.MouseButton.RightButton:
             hs_max = self.scroll_img.horizontalScrollBar().maximum()
             vs_max = self.scroll_img.verticalScrollBar().maximum()
             hs_min = self.scroll_img.horizontalScrollBar().minimum()
             vs_min = self.scroll_img.verticalScrollBar().minimum()
 
-            dh = (self.drag_start_x - event.x())
-            dv = (self.drag_start_y - event.y())
+            dh = int(self.drag_start_x - event.position().x())
+            dv = int(self.drag_start_y - event.position().y())
 
             self.scroll_img.horizontalScrollBar().setValue(min(hs_max, max(hs_min, self.drag_start_hs_v+dh)))
             self.scroll_img.verticalScrollBar().setValue(min(vs_max, max(vs_min, self.drag_start_vs_v+dv)))
@@ -485,12 +490,10 @@ class MainWindow(QMainWindow):
             vs_r = self.scroll_img.verticalScrollBar().value() / self.scroll_img.verticalScrollBar().maximum()
         else:
             vs_r = 0.5
-        self.cmb_zoom.setCurrentIndex(max(0,
-                                          min(self.cmb_zoom.count()-1,
-                                              self.cmb_zoom.currentIndex()+np.sign(event.angleDelta().y())
-                                              )
-                                          )
-                                      )
+        s = event.angleDelta().y() * SCROLL_SPEED
+        if s < 0:
+            s = -1 / s
+        self.sl_zoom.setValue(int(self.sl_zoom.value() * s))
         self.scroll_img.horizontalScrollBar().setValue(int(self.scroll_img.verticalScrollBar().maximum() * hs_r))
         self.scroll_img.verticalScrollBar().setValue(int(self.scroll_img.verticalScrollBar().maximum() * vs_r))
 
@@ -594,6 +597,9 @@ class MainWindow(QMainWindow):
                 suffix = 'sim(%d,%d)' % (self.x, self.y)
             else:
                 suffix = 'sim(%s)' % self.cmb_reference.currentText()
+        else:
+            print("Your argument is invalid!")
+            return
         expfile = os.path.join(expdir, "%s_%s.png" % (basename, suffix))
 
         fileName, _ = QFileDialog.getSaveFileName(None, "Export image", expfile, "All Files (*)")
@@ -606,20 +612,20 @@ class MainWindow(QMainWindow):
                                             'Add spectrum to database',
                                             'sample name: ')
             if ok and name:
-                if name in [n['name'] for n in self.anal.db]:
+                if name in [n['name'] for n in self.db.data]:
                     answer = QMessageBox.question(self,
                                                   'Name already exists!',
                                                   'A sample with the name %s already exists in the database. Overwrite?' % name
                                                   )
-                    if answer == QMessageBox.Yes:
-                        self.anal.add_to_db(name, self.spectrum)
-                        self.anal.save_db()
-                        self.cmb_reference.addItem(name, len(self.anal.db) - 1)
+                    if answer == QMessageBox.StandardButton.Yes:
+                        self.db.add_to_db(name, self.spectrum)
+                        self.db.save_db()
+                        self.cmb_reference.addItem(name, len(self.db.data) - 1)
 
                 else:
-                    self.anal.add_to_db(name, self.spectrum)
-                    self.anal.save_db()
-                    self.cmb_reference.addItem(name, len(self.anal.db)-1)
+                    self.db.add_to_db(name, self.spectrum)
+                    self.db.save_db()
+                    self.cmb_reference.addItem(name, len(self.db.data) - 1)
 
 
 
@@ -629,13 +635,13 @@ class MainWindow(QMainWindow):
     def handle_action_create_db(self):
         dirname = QFileDialog.getExistingDirectory(None, "Select root directory for database creation", "")
         if dirname:
-            Analysis.create_database(dirname, True)
+            Database.create_database(dirname, True)
 
     def handle_action_load_db(self):
         filename, _ = QFileDialog.getOpenFileName(None, "Select file containing reference spectra",
                                                   "", "json files (*.json)")
         if filename:
-            self.anal.load_db(filename)
+            self.db.load_db(filename)
 
     # def match_cube(self):
     #     vis_dir = os.path.join(os.path.dirname(self.rawfile), '..', 'pigment_maps')

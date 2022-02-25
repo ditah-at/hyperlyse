@@ -1,4 +1,4 @@
-from hyperlyse.specim import SpecimIQ
+from hyperlyse.cube import SpecimIQ
 from hyperlyse.plotcanvas import PlotCanvas
-from hyperlyse.analysis import Analysis
+from hyperlyse.database import Database
 import hyperlyse.main

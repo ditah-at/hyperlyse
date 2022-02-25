@@ -5,11 +5,11 @@ from hyperlyse import SpecimIQ
 from matplotlib import pyplot as plt
 
 
-class Analysis:
+class Database:
 
     def __init__(self):
-        self.db = None
-        self.db_file = None
+        self.data = None
+        self.file_data = None
 
 
     @staticmethod
@@ -76,33 +76,33 @@ class Analysis:
                 json.dump(db_spectra, f, indent=4)
 
     def load_db(self, file):
-        self.db_file = file
-        with open(self.db_file, 'r') as f:
-            self.db = json.load(f)
-        self.db.sort(key=lambda x: x['name'])
+        self.file_data = file
+        with open(self.file_data, 'r') as f:
+            self.data = json.load(f)
+        self.data.sort(key=lambda x: x['name'])
 
     def save_db(self, file=None):
         if file is None:
-            file = self.db_file
+            file = self.file_data
         with open(file, 'w') as f:
-            json.dump(self.db, f, indent=4)
+            json.dump(self.data, f, indent=4)
 
     def add_to_db(self, name, spectrum):
         if isinstance(spectrum, np.ndarray):
             spectrum = [x.item() for x in spectrum]
-        if name in [s['name'] for s in self.db]:
+        if name in [s['name'] for s in self.data]:
             # overwrite spectrum
-            for s in self.db:
+            for s in self.data:
                 if s['name'] == name:
                     s['spectrum'] = spectrum
         else:
             # insert new spectrum
-            self.db.append({'name': name,
+            self.data.append({'name': name,
                             'spectrum': spectrum})
 
 
     def search_spectrum(self, query_spectrum, use_gradient=False, squared_errs=True):
-        result = self.db.copy()
+        result = self.data.copy()
         for s in result:
             if use_gradient:
                 errs = np.gradient(query_spectrum) - np.gradient(s['spectrum'])

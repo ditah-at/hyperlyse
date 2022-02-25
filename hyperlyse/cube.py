@@ -56,10 +56,6 @@ class SpecimIQ:
                     978.8800048828125, 981.96002197265625, 985.04998779296875, 988.1300048828125, 991.219970703125,
                     994.30999755859375, 997.4000244140625, 1000.489990234375, 1003.5800170898438]
 
-    # lambda_min = lambda_space
-    # lambda_max = 1004
-    # lambda_delta = (lambda_max - lambda_min) / bands
-    # lambda_space = np.linspace(lambda_min, lambda_max, bands)
 
     @staticmethod
     def lambda2layer(lmd):
@@ -72,9 +68,6 @@ class SpecimIQ:
         r = 598
         g = 548
         b = 449
-        # rgb = np.dstack((cube[:, :, int((r - lambda_min) / lambda_delta)],
-        #                  cube[:, :, int((g - lambda_min) / lambda_delta)],
-        #                  cube[:, :, int((b - lambda_min) / lambda_delta)]))
         rgb = np.dstack((cube[:, :, SpecimIQ.lambda2layer(r)],
                          cube[:, :, SpecimIQ.lambda2layer(g)],
                          cube[:, :, SpecimIQ.lambda2layer(b)]))
