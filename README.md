@@ -11,17 +11,18 @@ Documentation coming soon maybe.
 
 feature requests
 -----
-* R005 200% zoom level by default (--> make windows larger upon startup, make image fill whole area
-* R007 PCA
-* R008 load HSI files other than specim IQ (specifically: .envi)
-
+* R009 add brightness adjustment slider for visualization image
 
 
 v1.2
 -----
 * Migration to Qt6 (also updated the other python packages)
 * Zooming: Slider instead of combo box - smaller increments
+* R005 higher zoom level by default (--> make windows larger upon startup, make image fill whole area
 * R006 no automatic scaling of y-axis (graph)
+* R008 support for general envi files (not only from Specim IQ)
+* R008.A comparison of spectra with different bands
+* R007 PCA - without much user control. might be added on request.
 
 v1.1
 -----

@@ -5,24 +5,26 @@ from PyQt6.QtGui import QPixmap, QImage, QGuiApplication
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog, QMessageBox
 from PyQt6.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QFrame
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QSizePolicy
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QSizePolicy, QSpinBox
 import matplotlib.image
 from matplotlib import pyplot as plt
-from hyperlyse import SpecimIQ, Database, PlotCanvas
+from hyperlyse import Database, PlotCanvas, Cube, principal_component_analysis
 import collections
 
 # config
 __version__ = "1.2"
 INFOTEXT = "\n".join(["Hyperlyse",
-                      "Version: %s" % __version__,
+                      f"Version: {__version__}"
                       "Author: Simon Brenner",
                       "Institution: Computer Vision Lab, TU Wien",
                       "License: CC-BY-NC-SA"])
-
-
 DEFAULT_DB_FILE = 'Worco_medium_poster_spectra-db.json'
-
 SCROLL_SPEED = 0.01
+CROSS_SIZE = 5
+CROSS_COLOR_H = (0, 255, 0)
+CROSS_VOLOR_V = (255, 0, 0)
+CROSS_COLOR_C = (0, 0, 255)
+INITIAL_IMAGE_WIDTH_RATIO = 0.45
 
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
@@ -31,6 +33,7 @@ class MainWindow(QMainWindow):
         # data members
         self.cube = None
         self.rgb = None
+        self.pca = None
         self.error_map = None
         self.error_map_ref_spectrum = []
         self.error_map_use_gradient = False
@@ -66,9 +69,6 @@ class MainWindow(QMainWindow):
         layout_outer.addLayout(layout_img)
 
         self.lbl_img = QLabel(cw)
-        img_startup = QPixmap()
-        img_startup.load('startup.png')
-        self.lbl_img.setPixmap(img_startup)
         self.lbl_img.mousePressEvent = self.handle_click_on_image
         self.lbl_img.setAcceptDrops(True)
         self.lbl_img.dragEnterEvent = self.handle_drag_enter
@@ -87,8 +87,8 @@ class MainWindow(QMainWindow):
         layout_zoom.addWidget(lbl_zoom)
         self.sl_zoom = QSlider(cw)
         self.sl_zoom.setOrientation(Qt.Orientation.Horizontal)
-        self.sl_zoom.setMinimum(100)
-        self.sl_zoom.setMaximum(1600)
+        self.sl_zoom.setMinimum(25)
+        self.sl_zoom.setMaximum(800)
         self.sl_zoom.setValue(100)
         self.sl_zoom.valueChanged.connect(self.update_image_label)
         layout_zoom.addWidget(self.sl_zoom)
@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
         tab_layers.layout().addWidget(self.sl_lambda)
 
         self.lbl_lambda = QLabel(tab_layers)
-        self.lbl_lambda.setText(self.get_lambda_slider_text(0))
+        self.lbl_lambda.setText("0")
         tab_layers.layout().addWidget(self.lbl_lambda)
 
         # similarity -> index 2
@@ -167,6 +167,29 @@ class MainWindow(QMainWindow):
         self.sl_sim_t.setValue(0)
         self.sl_sim_t.valueChanged.connect(self.update_image_label)
         tab_similarity.layout().addWidget(self.sl_sim_t)
+
+        # PCA -> index 3
+        tab_pca = QWidget()
+        tab_pca.setLayout(QHBoxLayout())
+        self.tabs_img_ctrl.addTab(tab_pca, 'pca')
+
+        lbl_components = QLabel(tab_pca)
+        lbl_components.setText('Select component:')
+        tab_pca.layout().addWidget(lbl_components)
+
+        self.sl_component = QSlider(tab_pca)
+        self.sl_component.setOrientation(Qt.Orientation.Horizontal)
+        self.sl_component.valueChanged.connect(self.update_image_label)
+        self.sl_component.setMinimumWidth(300)
+        self.sl_component.setMinimum(0)
+        self.sl_component.setMaximum(9)
+        self.sl_component.setValue(0)
+        tab_pca.layout().addWidget(self.sl_component)
+
+        self.lbl_component = QLabel(tab_pca)
+        self.lbl_component.setText("0")
+        tab_pca.layout().addWidget(self.lbl_component)
+
 
         ### specrtra display
         layout_spectra = QVBoxLayout(cw)
@@ -243,13 +266,6 @@ class MainWindow(QMainWindow):
         layout_export_ctrl.addWidget(btn_add_to_db)
 
 
-        ### statusbar
-        #self.statusBar().showMessage('Ready')
-        # self.progress_bar = QProgressBar(cw)
-        # self.progress_bar.setFixedHeight(10)
-        # self.progress_bar.setValue(0)
-        # self.statusBar().addPermanentWidget(self.progress_bar)
-
         ### create menu
         menubar = self.menuBar()
 
@@ -288,8 +304,15 @@ class MainWindow(QMainWindow):
         self.match_point_win = None
 
         # finito!
-        screensize = QGuiApplication.screens()[0].availableSize() * 0.9
-        self.resize(min(screensize.width(), 1064), min(screensize.height(), 652))
+        ss = QGuiApplication.screens()[0].availableSize()
+        self.setGeometry(int(ss.width()*0.1), int(ss.height()*0.1),
+                         int(ss.width()*0.8), int(ss.height()*0.8))
+        img_startup = QPixmap()
+        img_startup.load('startup_quote.png')
+        wi = int(self.width() * INITIAL_IMAGE_WIDTH_RATIO)
+        img_startup = img_startup.scaled(wi, wi, transformMode=Qt.TransformationMode.SmoothTransformation)
+        self.lbl_img.setPixmap(img_startup)
+        self.lbl_img.resize(wi, wi)
         self.show()
 
     def show_info(self):
@@ -312,31 +335,36 @@ class MainWindow(QMainWindow):
         self.sl_lambda.setValue(0)
         self.lbl_lambda.setText(self.get_lambda_slider_text(0))
         if self.cube is not None:
-            if len(self.cube.shape) > 2:
-                self.sl_lambda.setMaximum(self.cube.shape[2])
+            self.sl_lambda.setMaximum(self.cube.nbands-1)
+        self.sl_component.setValue(0)
         self.plot.reset()
 
     def update_image_label(self):
         img = None
-        # handle img checkbox and lambda slider
+
+        # 1. get base image, depending on selected tab
+        # 0) RGB image
         if self.tabs_img_ctrl.currentIndex() == 0:
             if self.rgb is not None:
                 img = self.rgb
-
+        # 1) single layer
         elif self.tabs_img_ctrl.currentIndex() == 1:
             layer = self.sl_lambda.value()
             if self.cube is not None:
-                if 0 <= layer < self.cube.shape[2]:
-                    img = self.cube[:, :, layer]
+                if 0 <= layer < self.cube.nbands:
+                    img = self.cube.data[:, :, layer]
                     self.lbl_lambda.setText(self.get_lambda_slider_text(layer))
-
+        # 2) similarity
         elif self.tabs_img_ctrl.currentIndex() == 2:
             ref_spec = None
+            ref_bands = None
             if self.cmb_reference.currentData() == -1:
                 if self.spectrum is not None:
                     ref_spec = self.spectrum
+                    ref_bands = self.cube.bands
             else:
                 ref_spec = self.db.data[self.cmb_reference.currentData()]['spectrum']
+                ref_bands = self.db.data[self.cmb_reference.currentData()]['bands']
             if ref_spec is not None and self.cube is not None:
                 # do we have to recompute the similarity map?
                 if list(ref_spec) != list(self.error_map_ref_spectrum) \
@@ -345,6 +373,7 @@ class MainWindow(QMainWindow):
                     self.error_map_use_gradient = self.cb_similarity_gradient.isChecked()
                     self.error_map = self.db.compare_cube_to_spectrum(self.cube,
                                                                       ref_spec,
+                                                                      ref_bands,
                                                                       use_gradient=self.cb_similarity_gradient.isChecked())
 
                 err_map_t = self.error_map.copy()
@@ -352,20 +381,40 @@ class MainWindow(QMainWindow):
                 err_map_t[err_map_t > t] = t
                 img = self.visualize_error_map(err_map_t)
 
+        # 3) PCA
+        elif self.tabs_img_ctrl.currentIndex() == 3:
+            component = self.sl_component.value()
+            if self.cube is not None:
+                if self.pca is None:
+                    self.pca = principal_component_analysis(self.cube.data, p_keep=0.01, n_components=10)
+                if 0 <= component < self.pca.shape[2]:
+                    img = self.pca[:, :, component]
+                    img = img - img.min()
+                    self.lbl_component.setText(f'PC {component}')
 
+        # 2. if we have an image, draw the selected pixel and render it.
         if img is not None:
-            if self.x != -1 != self.y:
-                img = self.draw_cross(img, self.x, self.y)
-
             # float to normalized 8 bit
             img = np.uint8(img * (255 / img.max()))
-            s = img.shape
-            height = s[0]
-            width = s[1]
+
+            scale = self.sl_zoom.value() / 100
+
+            # draw cross
+            if self.x != -1 != self.y:
+                padding = 0
+                cross_size = CROSS_SIZE
+                if scale < 1:
+                    padding = int(np.ceil(1/scale - 1))
+                    cross_size = int(np.ceil(cross_size / scale))
+                img = self.draw_cross(img, cross_size, padding)
+            else:
+                print('warning: invalid x and y given to draw_cross. returning original image.')
+
+            width = img.shape[1]
+            height = img.shape[0]
             qImg = None
-            if len(s) == 3:
-                if s[2] == 3:
-                    qImg = QImage(img.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
+            if len(img.shape) == 3:
+                qImg = QImage(img.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
             else:
                 qImg = QImage(img.tobytes(), width, height, width, QImage.Format.Format_Grayscale8)
 
@@ -373,9 +422,8 @@ class MainWindow(QMainWindow):
                 qPixmap = QPixmap.fromImage(qImg)
                 # handle scaling
                 self.lbl_zoom.setText(f'{self.sl_zoom.value()}%')
-                scale = self.sl_zoom.value() / 100
                 qPixmap = qPixmap.scaled(int(width*scale), int(height*scale), transformMode=Qt.TransformationMode.FastTransformation)
-                # puh, finally
+                # set image
                 self.lbl_img.setPixmap(qPixmap)
                 self.lbl_img.resize(int(width*scale), int(height*scale))
 
@@ -387,17 +435,18 @@ class MainWindow(QMainWindow):
         self.sl_nspectra.setEnabled(search_enabled)
 
         if self.spectrum is not None:
-            self.plot.plot(SpecimIQ.lambda_space,
+            self.plot.plot(self.cube.bands,
                            self.spectrum,
                            label='query',
                            hold=False)
 
             if search_enabled:
                 result = self.db.search_spectrum(self.spectrum,
+                                                 self.cube.bands,
                                                  use_gradient=self.cb_gradient.isChecked(),
                                                  squared_errs=self.cb_squared.isChecked())
                 for s in result[:self.sl_nspectra.value()]:
-                    self.plot.plot(SpecimIQ.lambda_space,
+                    self.plot.plot(s['bands'],
                                    s['spectrum'],
                                    label='%s (e=%.3f)' % (s['name'], s['error']),
                                    linewidth=1,
@@ -408,19 +457,25 @@ class MainWindow(QMainWindow):
     ##################
     def load_data(self, filename):
         try:
-            self.cube = SpecimIQ.read(filename)
-            self.rgb = SpecimIQ.cube2rgb(self.cube)
+            self.cube = Cube(filename)
+            self.rgb = self.cube.to_rgb()
+            self.pca = None
             self.reset_ui()
             self.update_image_label()
             self.rawfile = filename
             self.action_save_img.setEnabled(True)
             #self.action_match_cube.setEnabled(True)
+            self.statusBar().showMessage(f'Loaded: {os.path.basename(filename)} | '
+                                         f'{self.cube.ncols} x {self.cube.nrows} px | '
+                                         f'{self.cube.nbands} bands.')
+            self.sl_zoom.setValue(int(self.width() * INITIAL_IMAGE_WIDTH_RATIO / self.cube.ncols * 100))
+
         except Exception as e:
             print("Error loading file: ")
             print(e)
 
     def handle_action_load_data(self):
-        filename, _ = QFileDialog.getOpenFileName(None, "Select Specim Raw File", "", "Specim raw files (*.raw)")
+        filename, _ = QFileDialog.getOpenFileName(None, "Select ENVI data file", "")
         if filename:
             self.load_data(filename)
 
@@ -438,9 +493,6 @@ class MainWindow(QMainWindow):
         #remove leading slashes
         while filename.startswith('/'):
             filename = filename[1:]
-        if not filename.endswith('.raw'):
-            print('Invalid file extension.')
-            return
         self.load_data(filename)
 
     #############################
@@ -452,8 +504,8 @@ class MainWindow(QMainWindow):
             self.y = int(event.pos().y() / self.sl_zoom.value() * 100)
             print("Selected point: (%d, %d)" % (self.x, self.y))
 
-            if 0 <= self.x < SpecimIQ.cols and 0 <= self.y < SpecimIQ.rows and self.cube is not None:
-                self.spectrum = self.cube[self.y, self.x, :]
+            if 0 <= self.x < self.cube.ncols and 0 <= self.y < self.cube.nrows and self.cube is not None:
+                self.spectrum = self.cube.data[self.y, self.x, :]
                 self.update_image_label()
                 self.update_spectrum_plot()
         else:
@@ -500,7 +552,7 @@ class MainWindow(QMainWindow):
     def handle_action_export_spectrum(self):
         if self.spectrum is not None:
             expdir = os.path.dirname(self.rawfile)
-            basename = os.path.basename(self.rawfile).split('.')[0]
+            basename = os.path.splitext(os.path.basename(self.rawfile))[0]
             expfile = os.path.join(expdir, "%s_(%d,%d).jdx" % (basename, self.x, self.y))
 
             fileName, _ = QFileDialog.getSaveFileName(None, "Save spectrum", expfile,
@@ -516,9 +568,11 @@ class MainWindow(QMainWindow):
 
                 if valid:
                     if self.cb_incl_img.isChecked() and self.rgb is not None:
-                        img = self.draw_cross(self.rgb, self.x, self.y)
+                        img = self.rgb
+                        img = np.uint8(img * (255 / img.max()))
+                        img = self.draw_cross(img)
                         base, ext = os.path.splitext(fileName)
-                        matplotlib.image.imsave(base + '.png', img)
+                        matplotlib.image.imsave(base + '.png', img.astype(np.uint8))
 
                     if self.cb_incl_graph.isChecked():
                         base, ext = os.path.splitext(fileName)
@@ -528,7 +582,7 @@ class MainWindow(QMainWindow):
                           '.dpt, .txt (plain comma-separated x,y values), .dx, .jdx, .jcm (JCAMP-DX)')
 
     def export_dpt(self, fileName):
-        data_x = np.float32(SpecimIQ.lambda_space)
+        data_x = np.float32(self.cube.bands)
         data = np.transpose([data_x, self.spectrum])
         np.savetxt(fileName, data, fmt='%.4f', delimiter=',')
 
@@ -556,7 +610,7 @@ class MainWindow(QMainWindow):
         # deconvolution procedures, apodization function, zero - fill, or other data processing, together
         # with reference to original spectra used for subtractions.
 
-        vx = np.float32(SpecimIQ.lambda_space)
+        vx = np.float32(self.cube.bands)
         vy = self.spectrum
 
         data['##DELTAX'] = (vx[-1] - vx[0]) / (len(vx) - 1)
@@ -618,12 +672,12 @@ class MainWindow(QMainWindow):
                                                   'A sample with the name %s already exists in the database. Overwrite?' % name
                                                   )
                     if answer == QMessageBox.StandardButton.Yes:
-                        self.db.add_to_db(name, self.spectrum)
+                        self.db.add_to_db(name, self.spectrum, self.cube.bands)
                         self.db.save_db()
                         self.cmb_reference.addItem(name, len(self.db.data) - 1)
 
                 else:
-                    self.db.add_to_db(name, self.spectrum)
+                    self.db.add_to_db(name, self.spectrum, self.cube.bands)
                     self.db.save_db()
                     self.cmb_reference.addItem(name, len(self.db.data) - 1)
 
@@ -643,42 +697,26 @@ class MainWindow(QMainWindow):
         if filename:
             self.db.load_db(filename)
 
-    # def match_cube(self):
-    #     vis_dir = os.path.join(os.path.dirname(self.rawfile), '..', 'pigment_maps')
-    #     self.anal.compare_cube_to_db(self.cube,
-    #                                  use_gradient=False,
-    #                                  squared_errs=True,
-    #                                  vis_dir=vis_dir)
 
     ###########
     # helpers
-    ###########
-    def draw_cross(self, img_in: np.array, x, y, size=5,
-                   color_h=(0, 1, 0), color_v=(1, 0, 0), color_c=(0, 0, 1)):
-        """
-        Creates a copy of img_in with a cross drawn onto it at given position
-        :param img_in:
-        :param x:
-        :param y:
-        :param size:
-        :param color:
-        :return:
-        """
-        img = np.copy(img_in)
-        rows = img.shape[0]
-        cols = img.shape[1]
+    ##########
+
+    def draw_cross(self, img, cross_size=CROSS_SIZE, padding=0):
+        # img = np.copy(img)
         if len(img.shape) == 2:
             img = np.dstack([img, img, img])
-        if 0 < x < cols and 0 < y < rows:
-            img[y, max(x - size, 0):min(x + size + 1, rows - 1)] = color_v
-            img[max(y - size, 0):min(y + size + 1, cols - 1), x] = color_h
-            img[y, x] = color_c
-        else:
-            print('warning: invalid x and y given to draw_cross. returning original image.')
+        if 0 < self.x < self.cube.ncols and 0 < self.y < self.cube.nrows:
+            img[max(self.y - padding, 0):min(self.y + padding + 1, self.cube.nrows - 1),
+            max(self.x - cross_size, 0):min(self.x + cross_size + 1, self.cube.ncols - 1)] = CROSS_VOLOR_V
+            img[max(self.y - cross_size, 0):min(self.y + cross_size + 1, self.cube.nrows - 1),
+            max(self.x - padding, 0):min(self.x + padding + 1, self.cube.ncols - 1)] = CROSS_COLOR_H
+            img[max(self.y - padding, 0):min(self.y + padding + 1, self.cube.nrows - 1),
+            max(self.x - padding, 0):min(self.x + padding + 1, self.cube.ncols - 1)] = CROSS_COLOR_C
         return img
 
     def get_lambda_slider_text(self, layer_idx):
-        return '%.1fnm' % SpecimIQ.lambda_space[layer_idx]
+        return '%.1fnm' % self.cube.bands[layer_idx]
 
     def visualize_error_map(self, error_map):
         # invert and map to [0, 1]:

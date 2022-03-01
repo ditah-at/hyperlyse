@@ -1,8 +1,9 @@
 import os
 import json
 import numpy as np
-from hyperlyse import SpecimIQ
 from matplotlib import pyplot as plt
+from hyperlyse import Cube
+from scipy.signal import resample
 
 
 class Database:
@@ -35,13 +36,13 @@ class Database:
                 file_hsdata = os.path.join(cur_dir, 'capture', img_name+'.raw')
                 cube = None
                 try:
-                    cube = SpecimIQ.read(file_hsdata)
+                    cube = Cube(file_hsdata)
                 except:
                     print('Error while trying to read HS data from %s. Skipping.' % file_hsdata)
                     continue
 
                 # for visualization purposes..
-                rgb = SpecimIQ.cube2rgb(cube)
+                rgb = cube.to_rgb()
                 fig, axs = plt.subplots(1, 3, figsize=(15, 5))
                 fig.suptitle('Spectra extracted from %s' % img_name)
 
@@ -51,13 +52,14 @@ class Database:
                     y = [int(lab['points'][0][1]), int(lab['points'][1][1])]
                     y.sort()
 
-                    crop_to_label = cube[y[0]:y[1], x[0]:x[1]]
+                    crop_to_label = cube.data[y[0]:y[1], x[0]:x[1], :]
                     mean_spectrum = crop_to_label.mean((0, 1))
                     db_spectra.append({'name': lab['label'],
-                                       'spectrum': mean_spectrum.tolist()})
+                                       'spectrum': mean_spectrum.tolist(),
+                                       'bands': cube.bands})
 
                     if visualize:
-                        axs[1].plot(SpecimIQ.lambda_space, mean_spectrum, label=lab['label'])
+                        axs[1].plot(cube.bands, mean_spectrum, label=lab['label'])
                         rect_color = [0, 1, 0]
                         rgb[y[0]:y[1], x[0]] = rect_color
                         rgb[y[0]:y[1], x[1]] = rect_color
@@ -87,7 +89,7 @@ class Database:
         with open(file, 'w') as f:
             json.dump(self.data, f, indent=4)
 
-    def add_to_db(self, name, spectrum):
+    def add_to_db(self, name, spectrum, bands):
         if isinstance(spectrum, np.ndarray):
             spectrum = [x.item() for x in spectrum]
         if name in [s['name'] for s in self.data]:
@@ -95,19 +97,38 @@ class Database:
             for s in self.data:
                 if s['name'] == name:
                     s['spectrum'] = spectrum
+                    s['bands'] = bands
         else:
             # insert new spectrum
             self.data.append({'name': name,
-                            'spectrum': spectrum})
+                              'spectrum': spectrum,
+                              'bands': bands})
 
 
-    def search_spectrum(self, query_spectrum, use_gradient=False, squared_errs=True):
+    def search_spectrum(self, query_spectrum, query_bands, use_gradient=False, squared_errs=True):
         result = self.data.copy()
+        query_bands = np.array(query_bands)
+        query_spectrum = np.array(query_spectrum)
         for s in result:
+            s_bands = np.array(s['bands'])
+            s_spectrum = np.array(s['spectrum'])
+
+            lambda_min = max(query_bands[0], s_bands[0])
+            lambda_max = min(query_bands[-1], s_bands[-1])
+
+            query_window = np.logical_and(query_bands >= lambda_min, query_bands <= lambda_max)
+            query_spectrum_w = query_spectrum[query_window]
+
+            s_window = np.logical_and(s_bands >= lambda_min, s_bands <= lambda_max)
+            s_spectrum_w = s_spectrum[s_window]
+
+            query_spectrum_r = resample(query_spectrum_w, 100)
+            s_spectrum_r = resample(s_spectrum_w, 100)
+
             if use_gradient:
-                errs = np.gradient(query_spectrum) - np.gradient(s['spectrum'])
+                errs = np.gradient(query_spectrum_r) - np.gradient(s_spectrum_r)
             else:
-                errs = query_spectrum - s['spectrum']
+                errs = query_spectrum_r - s_spectrum_r
 
             if squared_errs:
                 errs = np.power(errs, 2)
@@ -122,16 +143,38 @@ class Database:
 
         return result
 
-    def compare_cube_to_spectrum(self,
-                                 cube,
+
+    @staticmethod
+    def compare_cube_to_spectrum(cube,
                                  spectrum,
+                                 bands,
                                  use_gradient=False,
                                  squared_errs=True):
 
-        if use_gradient:
-            cube_diff = np.gradient(cube, axis=2) - np.gradient(spectrum)
+        bands = np.array(bands)
+        spectrum = np.array(spectrum)
+        c_bands = np.array(cube.bands)
+
+        # resample if required
+        if not np.array_equal(bands, c_bands):
+            lambda_min = max(bands[0], c_bands[0])
+            lambda_max = min(bands[-1], c_bands[-1])
+
+            query_window = np.logical_and(bands >= lambda_min, bands <= lambda_max)
+            spectrum_w = spectrum[query_window]
+
+            c_window = np.logical_and(c_bands >= lambda_min, c_bands <= lambda_max)
+            cube_data = cube.data[:, :, c_window]
+
+            spectrum = resample(spectrum_w, cube_data.shape[2])
         else:
-            cube_diff = cube - spectrum
+            cube_data = cube.data
+
+
+        if use_gradient:
+            cube_diff = np.gradient(cube_data, axis=2) - np.gradient(spectrum)
+        else:
+            cube_diff = cube_data - np.array(spectrum)
         if squared_errs:
             cube_diff = np.power(cube_diff, 2)
         else:
