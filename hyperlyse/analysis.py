@@ -12,7 +12,7 @@ def principal_component_analysis(cube_data, p_keep=1.0, n_components=0):
     source_data = np.reshape(cube_data, (cube_data.shape[0] * cube_data.shape[1], cube_data.shape[2]))
     n_samples, n_features = source_data.shape
 
-    ### extract the data that should actually used for the fitting
+    # extract the data that should actually be used for the fitting
     fitting_data = source_data
     if p_keep < 1.0:
         idx = np.arange(n_samples)
@@ -20,8 +20,8 @@ def principal_component_analysis(cube_data, p_keep=1.0, n_components=0):
         idx = idx[:int(n_samples * p_keep)]
         fitting_data = fitting_data[idx, :]
 
-    ### do the fitting
-    pca = decomposition.PCA(n_components=n_components, svd_solver='full', whiten=True)
+    # do the fitting
+    pca = decomposition.PCA(n_components=n_components, svd_solver='auto', whiten=True)
     pca.fit(fitting_data)
 
     result_data = pca.transform(source_data)

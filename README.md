@@ -9,13 +9,8 @@ Documentation coming soon maybe.
 ---
 ## Changelog
 
-feature requests
------
-* R009 add brightness adjustment slider for visualization image
 
-
-v1.2
------
+### v1.2
 * Migration to Qt6 (also updated the other python packages)
 * Zooming: Slider instead of combo box - smaller increments
 * R005 higher zoom level by default (--> make windows larger upon startup, make image fill whole area
@@ -24,11 +19,22 @@ v1.2
 * R008.A comparison of spectra with different bands
 * R007 PCA - without much user control. might be added on request.
 
-v1.1
------
+### v1.1
 * R001 export image with marked samplepoint together with spectrum
 * R002 zoom (for precise point selection)
 * R003 export to JCAMP format
 * R004 make spectra exports perfectly compatible with exports from SpecimIQ Studio
 * spectral databases and spectra comparison features (experimental)
 * advanced image view modes
+
+### open feature requests
+* R009 add brightness adjustment slider for visualization image
+
+---
+
+## Building
+for python packages, see requirements.txt
+
+**building with pyinstaller currently only works up to python 3.9**
+
+for building with pyinstaller on Windows, cd to /hyperlyse/ and run build.bat

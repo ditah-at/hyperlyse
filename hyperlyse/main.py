@@ -14,7 +14,7 @@ import collections
 # config
 __version__ = "1.2"
 INFOTEXT = "\n".join(["Hyperlyse",
-                      f"Version: {__version__}"
+                      f"Version: {__version__}",
                       "Author: Simon Brenner",
                       "Institution: Computer Vision Lab, TU Wien",
                       "License: CC-BY-NC-SA"])
@@ -300,15 +300,20 @@ class MainWindow(QMainWindow):
         action_info = menu_info.addAction('&Show info')
         action_info.triggered.connect(self.show_info)
 
+        #very important
+        self.statusBar().showMessage('"Hyper, hyper. We need the bass drum." - H.P. Baxxter')
+
         # additional windows (define here for better readability only)
         self.match_point_win = None
+
+
 
         # finito!
         ss = QGuiApplication.screens()[0].availableSize()
         self.setGeometry(int(ss.width()*0.1), int(ss.height()*0.1),
                          int(ss.width()*0.8), int(ss.height()*0.8))
         img_startup = QPixmap()
-        img_startup.load('startup_quote.png')
+        img_startup.load('startup.png')
         wi = int(self.width() * INITIAL_IMAGE_WIDTH_RATIO)
         img_startup = img_startup.scaled(wi, wi, transformMode=Qt.TransformationMode.SmoothTransformation)
         self.lbl_img.setPixmap(img_startup)
