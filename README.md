@@ -29,7 +29,20 @@ Documentation coming soon maybe.
 
 ### open feature requests
 * R009 add brightness adjustment slider for visualization image
-
+* R010 UI element for y-range
+* R011 define custom spectral range (x-axis) used for all comparison operations (with UI element)
+* R012 select spectrum by rectangle (average)
+* R013 database management: load and save, portable db format
+* R014 select, display and compare specific DB spectrum
+* R015 extended fields for database spectra:
+  - name
+  - origin (e.g. name of poster)
+  - original HSI file
+  - rectangle of measurement
+  - selected area as RGB image
+  - measurement device
+  - pigment intensity (light, medium, dark)
+* R016 edit or delete spectra from DB
 ---
 
 ## Building
