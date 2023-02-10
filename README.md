@@ -9,6 +9,13 @@ Documentation coming soon maybe.
 ---
 ## Changelog
 
+### v1.3
+* R009 brightness adjustment slider for visualization image
+* R010 UI element for y-range
+* configuration in config.json
+* semitransparent markers
+* R012 select spectrum by rectangle (average)
+* in the process: lots of internal refactoring
 
 ### v1.2
 * Migration to Qt6 (also updated the other python packages)
@@ -28,10 +35,7 @@ Documentation coming soon maybe.
 * advanced image view modes
 
 ### open feature requests
-* R009 add brightness adjustment slider for visualization image
-* R010 UI element for y-range
 * R011 define custom spectral range (x-axis) used for all comparison operations (with UI element)
-* R012 select spectrum by rectangle (average)
 * R013 database management: load and save, portable db format
 * R014 select, display and compare specific DB spectrum
 * R015 extended fields for database spectra:

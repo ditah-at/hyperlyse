@@ -13,12 +13,24 @@ class PlotCanvas(FigureCanvas):
         FigureCanvas.setSizePolicy(self, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         FigureCanvas.updateGeometry(self)
 
-    def plot(self, x, y, label='', linewidth=2, hold=False):
+        self.ymin = 0.0
+        self.ymax = 1.0
+
+    def set_y_range(self, ymin, ymax):
+        self.ymin = ymin
+        self.ymax = ymax
+
+    def plot(self,
+             x,
+             y,
+             label='',
+             linewidth=2,
+             hold=False):
         if not hold:
             self.figure.clear()
             self.ax = self.figure.add_subplot(111)
         self.ax.plot(x, y, label=label, linewidth=linewidth)
-        self.ax.set_ylim(0,1)
+        self.ax.set_ylim(self.ymin, self.ymax)
         if label:
             self.ax.legend()
         self.draw()
