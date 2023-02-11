@@ -4,12 +4,14 @@ import numbers
 from PyQt6.QtGui import QPixmap, QImage, QGuiApplication, QPainter
 from PyQt6.QtCore import Qt, QUrl, QRect, QPoint, QSize
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QInputDialog, QMessageBox, QRubberBand
-from PyQt6.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QFrame
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QTabWidget, QScrollArea, QSizePolicy, QSpinBox, QDoubleSpinBox
+from PyQt6.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QSpinBox, QFrame
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout, QTabWidget, QScrollArea, QSizePolicy, QDoubleSpinBox
 import matplotlib.image
 from matplotlib import pyplot as plt
 from hyperlyse import Database, PlotCanvas, Cube, principal_component_analysis, Exports
 
+hyper_quotes = ['"Hyper, hyper. We need the bass drum." - H.P. Baxxter',
+                '"Travelling through hyper space ain\'t like dusting crops, boy!" - Han Solo']
 
 class MainWindow(QMainWindow):
     def __init__(self, config, rawfile=None):
@@ -240,39 +242,66 @@ class MainWindow(QMainWindow):
         self.sb_nspectra.setEnabled(False)
         layout_search_ctrls.addWidget(self.sb_nspectra)
 
-        # plot canvas & range controls
-        layout_plot = QHBoxLayout(cw)
+        #### plot canvas & range controls
+        #layout_plot = QHBoxLayout(cw)
+        layout_plot = QGridLayout(cw)
         layout_spectra.addLayout(layout_plot)
 
-        layout_rangecontrol = QVBoxLayout(cw)
-        layout_plot.addLayout(layout_rangecontrol)
+        self.plot = PlotCanvas(cw)
+        layout_plot.addWidget(self.plot, 0, 1)
+
+        # y-range control
+        layout_yrangecontrol = QVBoxLayout(cw)
+        layout_plot.addLayout(layout_yrangecontrol, 0, 0)
 
         self.lbl_ymax = QLabel('ymax')
-        layout_rangecontrol.addWidget(self.lbl_ymax)
+        layout_yrangecontrol.addWidget(self.lbl_ymax)
         self.sb_ymax = QDoubleSpinBox(cw)
         self.sb_ymax.setMinimum(0.5)
         self.sb_ymax.setMaximum(1.5)
         self.sb_ymax.setValue(1)
         self.sb_ymax.setSingleStep(0.1)
         self.sb_ymax.valueChanged.connect(self.update_spectrum_plot)
-        layout_rangecontrol.addWidget(self.sb_ymax)
+        layout_yrangecontrol.addWidget(self.sb_ymax)
 
-        layout_rangecontrol.addStretch()
+        layout_yrangecontrol.addStretch()
 
         self.lbl_ymin = QLabel('ymin')
-        layout_rangecontrol.addWidget(self.lbl_ymin)
+        layout_yrangecontrol.addWidget(self.lbl_ymin)
         self.sb_ymin = QDoubleSpinBox(cw)
         self.sb_ymin.setMinimum(0)
         self.sb_ymin.setMaximum(1)
         self.sb_ymin.setValue(0)
         self.sb_ymin.setSingleStep(0.1)
         self.sb_ymin.valueChanged.connect(self.update_spectrum_plot)
-        layout_rangecontrol.addWidget(self.sb_ymin)
+        layout_yrangecontrol.addWidget(self.sb_ymin)
 
-        self.plot = PlotCanvas(cw)
-        layout_plot.addWidget(self.plot)
+        # x-range control
+        layout_xrangecontrol = QHBoxLayout(cw)
+        layout_plot.addLayout(layout_xrangecontrol, 1, 1)
 
-        # export controls
+        self.lbl_xmin = QLabel('Range for spectra comparison  |  min:')
+        layout_xrangecontrol.addWidget(self.lbl_xmin)
+        self.sl_xmin = QSlider(cw)
+        self.sl_xmin.setOrientation(Qt.Orientation.Horizontal)
+        self.sl_xmin.setMinimum(0)
+        self.sl_xmin.setMaximum(1000)
+        self.sl_xmin.setValue(0)
+        self.sl_xmin.valueChanged.connect(self.update_spectrum_plot)
+        layout_xrangecontrol.addWidget(self.sl_xmin)
+
+        self.lbl_xmax = QLabel('max:')
+        layout_xrangecontrol.addWidget(self.lbl_xmax)
+        self.sl_xmax = QSlider(cw)
+        self.sl_xmax.setOrientation(Qt.Orientation.Horizontal)
+        self.sl_xmax.setMinimum(0)
+        self.sl_xmax.setMaximum(1000)
+        self.sl_xmax.setValue(1000)
+        self.sl_xmax.setSingleStep(1)
+        self.sl_xmax.valueChanged.connect(self.update_spectrum_plot)
+        layout_xrangecontrol.addWidget(self.sl_xmax)
+
+        ### export controls
         layout_export_ctrl = QHBoxLayout(cw)
         layout_spectra.addLayout(layout_export_ctrl)
 
@@ -335,7 +364,8 @@ class MainWindow(QMainWindow):
         action_info.triggered.connect(self.show_info)
 
         # very important
-        self.statusBar().showMessage('"Hyper, hyper. We need the bass drum." - H.P. Baxxter')
+        quote = np.random.randint(0,len(hyper_quotes))
+        self.statusBar().showMessage(hyper_quotes[quote])
 
         # additional windows (define here for better readability only)
         self.match_point_win = None
@@ -377,6 +407,10 @@ class MainWindow(QMainWindow):
         self.lbl_lambda.setText(self.get_lambda_slider_text(0))
         if self.cube is not None:
             self.sl_lambda.setMaximum(self.cube.nbands - 1)
+            self.sl_xmin.setMinimum(self.cube.bands[0])
+            self.sl_xmin.setMaximum(self.cube.bands[-1])
+            self.sl_xmax.setMinimum(self.cube.bands[0])
+            self.sl_xmax.setMaximum(self.cube.bands[-1])
         self.sl_component.setValue(0)
         self.plot.reset()
 
@@ -415,6 +449,7 @@ class MainWindow(QMainWindow):
                     self.error_map = self.db.compare_cube_to_spectrum(self.cube,
                                                                       ref_spec,
                                                                       ref_bands,
+                                                                      custom_range=(self.sl_xmin.value(), self.sl_xmax.value()),
                                                                       use_gradient=self.cb_similarity_gradient.isChecked())
 
                 err_map_t = self.error_map.copy()
@@ -471,7 +506,10 @@ class MainWindow(QMainWindow):
         self.lbl_nspectra.setEnabled(search_enabled)
         self.sb_nspectra.setEnabled(search_enabled)
 
-        self.plot.set_y_range(self.sb_ymin.value(), self.sb_ymax.value())
+        self.plot.set_y_range(self.sl_xmin.value(),
+                              self.sl_xmax.value(),
+                              self.sb_ymin.value(),
+                              self.sb_ymax.value())
 
         if self.spectrum is not None:
             self.plot.plot(self.cube.bands,
@@ -482,6 +520,7 @@ class MainWindow(QMainWindow):
             if search_enabled:
                 result = self.db.search_spectrum(self.spectrum,
                                                  self.cube.bands,
+                                                 custom_range=(self.sl_xmin.value(), self.sl_xmax.value()),
                                                  use_gradient=self.cb_gradient.isChecked(),
                                                  squared_errs=self.cb_squared.isChecked())
                 for s in result[:self.sb_nspectra.value()]:

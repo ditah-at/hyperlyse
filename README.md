@@ -13,7 +13,8 @@ Documentation coming soon maybe.
 * R009 brightness adjustment slider for visualization image
 * R010 UI element for y-range
 * configuration in config.json
-* semitransparent markers
+* semitransparent markers 
+* R011 define custom spectral range (x-axis) used for all comparison operations (with UI element)
 * R012 select spectrum by rectangle (average)
 * in the process: lots of internal refactoring
 
@@ -35,7 +36,6 @@ Documentation coming soon maybe.
 * advanced image view modes
 
 ### open feature requests
-* R011 define custom spectral range (x-axis) used for all comparison operations (with UI element)
 * R013 database management: load and save, portable db format
 * R014 select, display and compare specific DB spectrum
 * R015 extended fields for database spectra:

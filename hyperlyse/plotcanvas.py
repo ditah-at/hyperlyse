@@ -13,10 +13,14 @@ class PlotCanvas(FigureCanvas):
         FigureCanvas.setSizePolicy(self, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         FigureCanvas.updateGeometry(self)
 
+        self.xmin = 0
+        self.xmax = 1000
         self.ymin = 0.0
         self.ymax = 1.0
 
-    def set_y_range(self, ymin, ymax):
+    def set_y_range(self, xmin, xmax, ymin, ymax):
+        self.xmin = xmin
+        self.xmax = xmax
         self.ymin = ymin
         self.ymax = ymax
 
@@ -29,6 +33,8 @@ class PlotCanvas(FigureCanvas):
         if not hold:
             self.figure.clear()
             self.ax = self.figure.add_subplot(111)
+            color = 'green' if self.xmin < self.xmax else 'red'
+            self.ax.axvspan(self.xmin, self.xmax, alpha=0.1, color=color)
         self.ax.plot(x, y, label=label, linewidth=linewidth)
         self.ax.set_ylim(self.ymin, self.ymax)
         if label:

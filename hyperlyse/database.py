@@ -105,19 +105,32 @@ class Database:
                               'bands': bands})
 
 
-    def search_spectrum(self, query_spectrum, query_bands, use_gradient=False, squared_errs=True):
+    def search_spectrum(self,
+                        query_spectrum,
+                        query_bands,
+                        custom_range=None,
+                        use_gradient=False,
+                        squared_errs=True):
         result = self.data.copy()
         query_bands = np.array(query_bands)
         query_spectrum = np.array(query_spectrum)
+
+        # if no query range is specified (or it is invalid), use range of query spectrum
+        if custom_range is None:
+            custom_range = (query_bands[0], query_bands[-1])
+        elif custom_range[0] > custom_range[1]:
+            custom_range = (query_bands[0], query_bands[-1])
+
+
         for s in result:
             s_bands = np.array(s['bands'])
             s_spectrum = np.array(s['spectrum'])
 
-            lambda_min = max(query_bands[0], s_bands[0])
-            lambda_max = min(query_bands[-1], s_bands[-1])
+            lambda_min = max(custom_range[0], s_bands[0])
+            lambda_max = min(custom_range[1], s_bands[-1])
 
-            query_window = np.logical_and(query_bands >= lambda_min, query_bands <= lambda_max)
-            query_spectrum_w = query_spectrum[query_window]
+            query_range = np.logical_and(query_bands >= lambda_min, query_bands <= lambda_max)
+            query_spectrum_w = query_spectrum[query_range]
 
             s_window = np.logical_and(s_bands >= lambda_min, s_bands <= lambda_max)
             s_spectrum_w = s_spectrum[s_window]
@@ -148,6 +161,7 @@ class Database:
     def compare_cube_to_spectrum(cube,
                                  spectrum,
                                  bands,
+                                 custom_range=None,
                                  use_gradient=False,
                                  squared_errs=True):
 
@@ -156,9 +170,15 @@ class Database:
         c_bands = np.array(cube.bands)
 
         # resample if required
-        if not np.array_equal(bands, c_bands):
-            lambda_min = max(bands[0], c_bands[0])
-            lambda_max = min(bands[-1], c_bands[-1])
+        if not np.array_equal(bands, c_bands) or custom_range is not None:
+
+            if custom_range is None:
+                custom_range = (c_bands[0], c_bands[-1])
+            elif custom_range[0] >= custom_range[1]:
+                custom_range = (c_bands[0], c_bands[-1])
+
+            lambda_min = max(bands[0], custom_range[0])
+            lambda_max = min(bands[-1], custom_range[1])
 
             query_window = np.logical_and(bands >= lambda_min, bands <= lambda_max)
             spectrum_w = spectrum[query_window]
@@ -180,7 +200,7 @@ class Database:
         else:
             cube_diff = np.abs(cube_diff)
 
-        err_map = np.sum(cube_diff, 2) # / cube.shape[2]
+        err_map = np.sum(cube_diff, 2)      # / cube.shape[2]
 
         return err_map
 
