@@ -36,17 +36,28 @@ Documentation coming soon maybe.
 * advanced image view modes
 
 ### open feature requests
-* R013 database management: load and save, portable db format
-* R014 select, display and compare specific DB spectrum
-* R015 extended fields for database spectra:
-  - name
-  - origin (e.g. name of poster)
-  - original HSI file
-  - rectangle of measurement
-  - selected area as RGB image
-  - measurement device
-  - pigment intensity (light, medium, dark)
-* R016 edit or delete spectra from DB
+* R013 new database architecture
+  - REQUIREMENTS 
+    - load and save, portable db format 
+    - select, display and compare specific DB spectrum
+    - extended fields for database spectra:
+      - name
+      - origin (e.g. name of poster)
+      - original HSI file
+      - rectangle of measurement
+      - selected area as RGB image
+      - measurement device
+      - pigment intensity (light, medium, dark)
+  - SOLUTION
+    - based on file system
+    - for each spectrum, store:
+      - jcamp-dx file with spectrum data and metadata
+      - png image with visualization
+    - load database -> recursivly parse arbitryry folder, or load single file
+    - save to database -> just save anywhere
+    - delete from database -> delete from filesystem
+    - portable -> just copy filesystem
+    
 ---
 
 ## Building

@@ -1,14 +1,14 @@
 import os
 import numpy as np
 import numbers
-from PyQt6.QtGui import QPixmap, QImage, QGuiApplication, QPainter
+from PyQt6.QtGui import QPixmap, QImage, QGuiApplication
 from PyQt6.QtCore import Qt, QUrl, QRect, QPoint, QSize
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QInputDialog, QMessageBox, QRubberBand
+from PyQt6.QtWidgets import QMainWindow, QFileDialog, QInputDialog, QMessageBox, QRubberBand, QDoubleSpinBox
 from PyQt6.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QSpinBox, QFrame
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout, QTabWidget, QScrollArea, QSizePolicy, QDoubleSpinBox
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout, QTabWidget, QScrollArea, QSizePolicy
 import matplotlib.image
 from matplotlib import pyplot as plt
-from hyperlyse import Database, PlotCanvas, Cube, principal_component_analysis, Exports
+from hyperlyse import Database, PlotCanvas, Cube, principal_component_analysis, Exports, QRangeSlider
 
 hyper_quotes = ['"Hyper, hyper. We need the bass drum." - H.P. Baxxter',
                 '"Travelling through hyper space ain\'t like dusting crops, boy!" - Han Solo']
@@ -24,8 +24,7 @@ class MainWindow(QMainWindow):
         self.rgb = None
         self.pca = None
         self.error_map = None
-        self.error_map_ref_spectrum = []
-        self.error_map_use_gradient = False
+        self.error_map_recompute_flag = True    # do we have to recompute the error map?
         self.point_selection = None
         self.rect_selection = None
         self.spectrum = None
@@ -77,49 +76,44 @@ class MainWindow(QMainWindow):
         self.scroll_img.wheelEvent = self.handle_wheel_on_image_scroll
         layout_img.addWidget(self.scroll_img)
 
-        layout_zoom = QHBoxLayout(cw)
-        layout_img.addLayout(layout_zoom)
+        # viewing controls
+        layout_img_ctrl = QGridLayout(cw)
+        layout_img.addLayout(layout_img_ctrl)
         lbl_zoom_static = QLabel('Zoom:')
-        lbl_zoom_static.setFixedWidth(40)
-        layout_zoom.addWidget(lbl_zoom_static)
+        layout_img_ctrl.addWidget(lbl_zoom_static, 0, 0)
         self.sl_zoom = QSlider(cw)
         self.sl_zoom.setOrientation(Qt.Orientation.Horizontal)
         self.sl_zoom.setMinimum(25)
         self.sl_zoom.setMaximum(800)
         self.sl_zoom.setValue(100)
         self.sl_zoom.valueChanged.connect(self.update_image_label)
-        layout_zoom.addWidget(self.sl_zoom)
+        layout_img_ctrl.addWidget(self.sl_zoom, 0, 1)
         self.lbl_zoom = QLabel('100%')
-        layout_zoom.addWidget(self.lbl_zoom)
+        layout_img_ctrl.addWidget(self.lbl_zoom, 0, 2)
 
-        layout_brightness = QHBoxLayout(cw)
-        layout_img.addLayout(layout_brightness)
+        layout_img.addLayout(layout_img_ctrl)
         lbl_brightness_static = QLabel('Brightness:')
-        lbl_brightness_static.setFixedWidth(40)
-        layout_brightness.addWidget(lbl_brightness_static)
+        layout_img_ctrl.addWidget(lbl_brightness_static, 1, 0)
         self.sl_brightness = QSlider(cw)
         self.sl_brightness.setOrientation(Qt.Orientation.Horizontal)
         self.sl_brightness.setMinimum(0)
         self.sl_brightness.setMaximum(300)
         self.sl_brightness.setValue(100)
         self.sl_brightness.valueChanged.connect(self.update_image_label)
-        layout_brightness.addWidget(self.sl_brightness)
+        layout_img_ctrl.addWidget(self.sl_brightness, 1, 1)
         self.lbl_brightness = QLabel('100%')
-        layout_brightness.addWidget(self.lbl_brightness)
+        layout_img_ctrl.addWidget(self.lbl_brightness, 1, 2)
 
-        # image controls
-        layout_img_ctrl = QHBoxLayout(cw)
-        layout_img.addLayout(layout_img_ctrl)
-
+        # content controls
         lbl_img_display = QLabel(cw)
         lbl_img_display.setText('Mode:')
-        lbl_img_display.setFixedWidth(40)
-        layout_img_ctrl.addWidget(lbl_img_display)
+        lbl_img_display.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout_img_ctrl.addWidget(lbl_img_display, 2, 0)
 
         self.tabs_img_ctrl = QTabWidget(cw)
         self.tabs_img_ctrl.currentChanged.connect(self.update_image_label)
         self.tabs_img_ctrl.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum))
-        layout_img_ctrl.addWidget(self.tabs_img_ctrl)
+        layout_img_ctrl.addWidget(self.tabs_img_ctrl, 2, 1)
 
         # RGB -> index 0
         tab_rgb = QWidget()
@@ -160,13 +154,8 @@ class MainWindow(QMainWindow):
         for s, i in zip(self.db.data, range(len(self.db.data))):
             self.cmb_reference.addItem(s['name'], i)
         self.cmb_reference.currentIndexChanged.connect(self.update_image_label)
+        self.cmb_reference.currentIndexChanged.connect(self.set_recompute_errmap_flag)
         tab_similarity.layout().addWidget(self.cmb_reference)
-
-        self.cb_similarity_gradient = QCheckBox(tab_similarity)
-        self.cb_similarity_gradient.setChecked(False)
-        self.cb_similarity_gradient.setText('compare gradients')
-        self.cb_similarity_gradient.stateChanged.connect(self.update_image_label)
-        tab_similarity.layout().addWidget(self.cb_similarity_gradient)
 
         lbl_sim_t = QLabel(tab_similarity)
         lbl_sim_t.setText('t=')
@@ -202,6 +191,19 @@ class MainWindow(QMainWindow):
         self.lbl_component.setText("0")
         tab_pca.layout().addWidget(self.lbl_component)
 
+        # save image
+        self.btn_save_img = QPushButton('Save\nImage')
+        self.btn_save_img.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum))
+        layout_img_ctrl.addWidget(self.btn_save_img, 2, 2)
+        self.btn_save_img.pressed.connect(self.export_image)
+
+
+        # add separator
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        layout_outer.addWidget(line)
+
         ########################
         ### specrtra display ###
         ########################
@@ -211,48 +213,23 @@ class MainWindow(QMainWindow):
         # db search controls
         layout_search_ctrls = QHBoxLayout(self)
         layout_spectra.addLayout(layout_search_ctrls)
-
-        self.cb_spectra_search = QCheckBox(cw)
-        self.cb_spectra_search.setText('Show similar spectra')
-        self.cb_spectra_search.stateChanged.connect(self.update_spectrum_plot)
-        layout_search_ctrls.addWidget(self.cb_spectra_search)
-
-        self.cb_squared = QCheckBox(self)
-        self.cb_squared.setText('squared errors')
-        self.cb_squared.setChecked(True)
-        self.cb_squared.setEnabled(False)
-        self.cb_squared.stateChanged.connect(self.update_spectrum_plot)
-        layout_search_ctrls.addWidget(self.cb_squared)
-
-        self.cb_gradient = QCheckBox(self)
-        self.cb_gradient.setText('compare gradients')
-        self.cb_gradient.setChecked(False)
-        self.cb_gradient.setEnabled(False)
-        self.cb_gradient.stateChanged.connect(self.update_spectrum_plot)
-        layout_search_ctrls.addWidget(self.cb_gradient)
-
-        self.lbl_nspectra = QLabel('number of spectra:')
-        self.lbl_nspectra.setEnabled(False)
-        layout_search_ctrls.addWidget(self.lbl_nspectra)
+        layout_search_ctrls.addStretch()
+        layout_search_ctrls.addWidget(QLabel('show'))
         self.sb_nspectra = QSpinBox(self)
-        self.sb_nspectra.setMinimum(1)
+        self.sb_nspectra.setMinimum(0)
         self.sb_nspectra.setMaximum(10)
-        self.sb_nspectra.setValue(3)
+        self.sb_nspectra.setValue(0)
         self.sb_nspectra.valueChanged.connect(self.update_spectrum_plot)
-        self.sb_nspectra.setEnabled(False)
         layout_search_ctrls.addWidget(self.sb_nspectra)
+        layout_search_ctrls.addWidget(QLabel('most similar spectra'))
 
         #### plot canvas & range controls
-        #layout_plot = QHBoxLayout(cw)
-        layout_plot = QGridLayout(cw)
+        layout_plot = QHBoxLayout(cw)
         layout_spectra.addLayout(layout_plot)
-
-        self.plot = PlotCanvas(cw)
-        layout_plot.addWidget(self.plot, 0, 1)
 
         # y-range control
         layout_yrangecontrol = QVBoxLayout(cw)
-        layout_plot.addLayout(layout_yrangecontrol, 0, 0)
+        layout_plot.addLayout(layout_yrangecontrol)
 
         self.lbl_ymax = QLabel('ymax')
         layout_yrangecontrol.addWidget(self.lbl_ymax)
@@ -276,30 +253,41 @@ class MainWindow(QMainWindow):
         self.sb_ymin.valueChanged.connect(self.update_spectrum_plot)
         layout_yrangecontrol.addWidget(self.sb_ymin)
 
+        # plot
+        self.plot = PlotCanvas(cw)
+        layout_plot.addWidget(self.plot)
+
+
         # x-range control
-        layout_xrangecontrol = QHBoxLayout(cw)
-        layout_plot.addLayout(layout_xrangecontrol, 1, 1)
+        layout_compare_ctrl = QHBoxLayout(cw)
+        layout_spectra.addLayout(layout_compare_ctrl)
 
-        self.lbl_xmin = QLabel('Range for spectra comparison  |  min:')
-        layout_xrangecontrol.addWidget(self.lbl_xmin)
-        self.sl_xmin = QSlider(cw)
-        self.sl_xmin.setOrientation(Qt.Orientation.Horizontal)
-        self.sl_xmin.setMinimum(0)
-        self.sl_xmin.setMaximum(1000)
-        self.sl_xmin.setValue(0)
-        self.sl_xmin.valueChanged.connect(self.update_spectrum_plot)
-        layout_xrangecontrol.addWidget(self.sl_xmin)
+        layout_compare_ctrl.addWidget(QLabel('Range'))
+        self.rs_xrange = QRangeSlider(cw)
+        self.rs_xrange.setRange(0, 1000)
+        self.rs_xrange.setMin(0)
+        self.rs_xrange.setMax(1000)
+        self.rs_xrange.startValueChanged.connect(self.update_spectrum_plot)
+        self.rs_xrange.endValueChanged.connect(self.update_spectrum_plot)
+        self.rs_xrange.startValueChanged.connect(self.set_recompute_errmap_flag)
+        self.rs_xrange.endValueChanged.connect(self.set_recompute_errmap_flag)
 
-        self.lbl_xmax = QLabel('max:')
-        layout_xrangecontrol.addWidget(self.lbl_xmax)
-        self.sl_xmax = QSlider(cw)
-        self.sl_xmax.setOrientation(Qt.Orientation.Horizontal)
-        self.sl_xmax.setMinimum(0)
-        self.sl_xmax.setMaximum(1000)
-        self.sl_xmax.setValue(1000)
-        self.sl_xmax.setSingleStep(1)
-        self.sl_xmax.valueChanged.connect(self.update_spectrum_plot)
-        layout_xrangecontrol.addWidget(self.sl_xmax)
+        layout_compare_ctrl.addWidget(self.rs_xrange)
+
+        self.cb_squared = QCheckBox(self)
+        self.cb_squared.setText('squared errors')
+        self.cb_squared.setChecked(True)
+        self.cb_squared.stateChanged.connect(self.update_spectrum_plot)
+        self.cb_squared.stateChanged.connect(self.set_recompute_errmap_flag)
+        layout_compare_ctrl.addWidget(self.cb_squared)
+
+        self.cb_gradient = QCheckBox(self)
+        self.cb_gradient.setText('compare gradients')
+        self.cb_gradient.setChecked(True)
+        self.cb_gradient.stateChanged.connect(self.update_spectrum_plot)
+        self.cb_gradient.stateChanged.connect(self.set_recompute_errmap_flag)
+        layout_compare_ctrl.addWidget(self.cb_gradient)
+
 
         ### export controls
         layout_export_ctrl = QHBoxLayout(cw)
@@ -330,33 +318,23 @@ class MainWindow(QMainWindow):
         btn_add_to_db.clicked.connect(self.handle_btn_add_to_db_clicked)
         layout_export_ctrl.addWidget(btn_add_to_db)
 
-        ### create menu
+        ###################
+        ### create menu ###
+        ###################
         menubar = self.menuBar()
 
         # file menu
         menu_file = menubar.addMenu('&File')
 
-        action_load_data = menu_file.addAction('&Load HS data...')
+        action_load_data = menu_file.addAction('&Load Hyperspectral Image...')
         action_load_data.triggered.connect(self.handle_action_load_data)
 
-        self.action_save_img = menu_file.addAction('&Save image...')
+        self.action_save_img = menu_file.addAction('&Save current image...')
         self.action_save_img.setEnabled(False)
         self.action_save_img.triggered.connect(self.export_image)
 
-        action_export_spectrum = menu_file.addAction('&Export spectrum...')
+        action_export_spectrum = menu_file.addAction('&Save selected spectrum...')
         action_export_spectrum.triggered.connect(self.handle_action_export_spectrum)
-
-        # analysis menu
-        menu_analysis = menubar.addMenu('&Analysis')
-        # self.action_match_cube = menu_analysis.addAction('&Match whole image with database')
-        # self.action_match_cube.setEnabled(False)
-        # self.action_match_cube.triggered.connect(self.match_cube)
-
-        submenu_db = menu_analysis.addMenu('&Database management')
-        action_load_db = submenu_db.addAction('&Load database from .json...')
-        action_load_db.triggered.connect(self.handle_action_load_db)
-        action_create_db = submenu_db.addAction('&Create new database...')
-        action_create_db.triggered.connect(self.handle_action_create_db)
 
         # info menu
         menu_info = menubar.addMenu('&?')
@@ -400,23 +378,29 @@ class MainWindow(QMainWindow):
         self.point_selection = None
         self.rect_selection = None
         self.error_map = None
-        self.error_map_ref_spectrum = []
-        self.error_map_use_gradient = False
+        self.error_map_recompute_flag = True
         self.tabs_img_ctrl.setCurrentIndex(0)
         self.sl_lambda.setValue(0)
         self.lbl_lambda.setText(self.get_lambda_slider_text(0))
         if self.cube is not None:
             self.sl_lambda.setMaximum(self.cube.nbands - 1)
-            self.sl_xmin.setMinimum(self.cube.bands[0])
-            self.sl_xmin.setMaximum(self.cube.bands[-1])
-            self.sl_xmax.setMinimum(self.cube.bands[0])
-            self.sl_xmax.setMaximum(self.cube.bands[-1])
+            # self.sl_xmin.setMinimum(self.cube.bands[0])
+            # self.sl_xmin.setMaximum(self.cube.bands[-1])
+            # self.sl_xmax.setMinimum(self.cube.bands[0])
+            # self.sl_xmax.setMaximum(self.cube.bands[-1])
+            self.rs_xrange.setMin(self.cube.bands[0])
+            self.rs_xrange.setMax(self.cube.bands[-1])
+            self.rs_xrange.setRange(self.cube.bands[0], self.cube.bands[-1])
+
         self.sl_component.setValue(0)
         self.plot.reset()
 
-    def update_image_label(self):
-        img = None
+    def set_recompute_errmap_flag(self):
+        self.error_map_recompute_flag = True
 
+    def update_image_label(self):
+        print('update_image_label')
+        img = None
         # I. get base image, depending on selected tab
         # 0 - RGB image
         if self.tabs_img_ctrl.currentIndex() == 0:
@@ -441,16 +425,15 @@ class MainWindow(QMainWindow):
                 ref_spec = self.db.data[self.cmb_reference.currentData()]['spectrum']
                 ref_bands = self.db.data[self.cmb_reference.currentData()]['bands']
             if ref_spec is not None and self.cube is not None:
-                # do we have to recompute the similarity map?
-                if list(ref_spec) != list(self.error_map_ref_spectrum) \
-                        or self.cb_similarity_gradient.isChecked() != self.error_map_use_gradient:
-                    self.error_map_ref_spectrum = ref_spec
-                    self.error_map_use_gradient = self.cb_similarity_gradient.isChecked()
-                    self.error_map = self.db.compare_cube_to_spectrum(self.cube,
-                                                                      ref_spec,
-                                                                      ref_bands,
-                                                                      custom_range=(self.sl_xmin.value(), self.sl_xmax.value()),
-                                                                      use_gradient=self.cb_similarity_gradient.isChecked())
+                if self.error_map_recompute_flag:
+                    self.error_map_recompute_flag = False
+                    self.error_map = self.db.compare_spectra(np.array(self.cube.bands),
+                                                             self.cube.data,
+                                                             np.array(ref_bands),
+                                                             ref_spec,
+                                                             custom_range=(self.rs_xrange.start(), self.rs_xrange.end()),
+                                                             use_gradient=self.cb_gradient.isChecked(),
+                                                             squared_errs=self.cb_squared.isChecked())
 
                 err_map_t = self.error_map.copy()
                 t = (100 - self.sl_sim_t.value()) / 100 * err_map_t.max()
@@ -465,7 +448,7 @@ class MainWindow(QMainWindow):
                     self.pca = principal_component_analysis(self.cube.data, p_keep=0.01, n_components=10)
                 if 0 <= component < self.pca.shape[2]:
                     img = self.pca[:, :, component]
-                    img = img - img.min()
+                    img = (img - img.min()) / (img.max() - img.min())
                     self.lbl_component.setText(f'PC {component}')
 
         # II. if we have an image, draw the selected pixel and render it.
@@ -500,16 +483,11 @@ class MainWindow(QMainWindow):
                 self.lbl_img.resize(int(width * scale), int(height * scale))
 
     def update_spectrum_plot(self):
-        search_enabled = self.cb_spectra_search.isChecked()
-        self.cb_gradient.setEnabled(search_enabled)
-        self.cb_squared.setEnabled(search_enabled)
-        self.lbl_nspectra.setEnabled(search_enabled)
-        self.sb_nspectra.setEnabled(search_enabled)
 
-        self.plot.set_y_range(self.sl_xmin.value(),
-                              self.sl_xmax.value(),
-                              self.sb_ymin.value(),
-                              self.sb_ymax.value())
+        self.plot.set_ranges(self.rs_xrange.start(),
+                             self.rs_xrange.end(),
+                             self.sb_ymin.value(),
+                             self.sb_ymax.value())
 
         if self.spectrum is not None:
             self.plot.plot(self.cube.bands,
@@ -517,10 +495,10 @@ class MainWindow(QMainWindow):
                            label='query',
                            hold=False)
 
-            if search_enabled:
-                result = self.db.search_spectrum(self.spectrum,
-                                                 self.cube.bands,
-                                                 custom_range=(self.sl_xmin.value(), self.sl_xmax.value()),
+            if self.sb_nspectra.value() > 0:
+                result = self.db.search_spectrum(self.cube.bands,
+                                                 self.spectrum,
+                                                 custom_range=(self.rs_xrange.start(), self.rs_xrange.end()),
                                                  use_gradient=self.cb_gradient.isChecked(),
                                                  squared_errs=self.cb_squared.isChecked())
                 for s in result[:self.sb_nspectra.value()]:
@@ -609,6 +587,7 @@ class MainWindow(QMainWindow):
                         self.point_selection = pos_img
                         self.rect_selection = None
                 # update ui
+                self.set_recompute_errmap_flag()
                 self.update_image_label()
                 self.update_spectrum_plot()
                 self.rubberband_selector.hide()
@@ -705,10 +684,12 @@ class MainWindow(QMainWindow):
                 suffix = f'sim{self.selection_str()}'
             else:
                 suffix = f'sim({self.cmb_reference.currentText()})'
+        elif self.tabs_img_ctrl.currentIndex() == 3:
+            suffix = f'pc{self.sl_component.value()}'
         else:
             print("Your argument is invalid!")
             return
-        expfile = os.path.join(expdir, "%s_%s.png" % (basename, suffix))
+        expfile = os.path.join(expdir, f"{basename}_{suffix}.png")
 
         fileName, _ = QFileDialog.getSaveFileName(None, "Export image", expfile, "All Files (*)")
         if fileName:

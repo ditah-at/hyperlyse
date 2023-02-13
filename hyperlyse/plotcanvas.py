@@ -18,7 +18,7 @@ class PlotCanvas(FigureCanvas):
         self.ymin = 0.0
         self.ymax = 1.0
 
-    def set_y_range(self, xmin, xmax, ymin, ymax):
+    def set_ranges(self, xmin, xmax, ymin, ymax):
         self.xmin = xmin
         self.xmax = xmax
         self.ymin = ymin

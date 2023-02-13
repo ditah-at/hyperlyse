@@ -104,163 +104,95 @@ class Database:
                               'spectrum': spectrum,
                               'bands': bands})
 
-
-    def search_spectrum(self,
-                        query_spectrum,
-                        query_bands,
+    @staticmethod
+    def compare_spectra(x1, y1,
+                        x2, y2,
                         custom_range=None,
                         use_gradient=False,
                         squared_errs=True):
-        result = self.data.copy()
-        query_bands = np.array(query_bands)
-        query_spectrum = np.array(query_spectrum)
+        """
+        compares 2 spectra
+        :param x1: np.array, wavelength array of spectrum 1
+        :param y1: np.array, intensity array of spectrum 1 - can be 1d (simple spectrum) or 3d (cube)
+        :param x2: np.array, wavelength array of spectrum 2
+        :param y2: np.array, intensity array of spectrum 2 - must be 1d, is re-sampled if required
+        :param custom_range: (x_min, x_max), a custom range of wavelengths used for comparison
+        :param use_gradient: compare gradients instead of absolute differences
+        :param squared_errs: use squared differences (or absolute differences)
+        :return: mean error/distance; scalar or 2d np.array, depending on shape of y1
+        """
+        x1 = np.array(x1)
+        x2 = np.array(x2)
+        y1 = np.array(y1)
+        y2 = np.array(y2)
 
-        # if no query range is specified (or it is invalid), use range of query spectrum
-        if custom_range is None:
-            custom_range = (query_bands[0], query_bands[-1])
-        elif custom_range[0] > custom_range[1]:
-            custom_range = (query_bands[0], query_bands[-1])
+        is_cube = len(y1.shape) == 3
 
+        lambda_min = max(x1[0], x2[0])
+        lambda_max = min(x1[-1], x2[-1])
+        if custom_range is not None:
+            lambda_min = max(lambda_min, custom_range[0])
+            lambda_max = min(lambda_max, custom_range[1])
 
-        for s in result:
-            s_bands = np.array(s['bands'])
-            s_spectrum = np.array(s['spectrum'])
-
-            lambda_min = max(custom_range[0], s_bands[0])
-            lambda_max = min(custom_range[1], s_bands[-1])
-
-            query_range = np.logical_and(query_bands >= lambda_min, query_bands <= lambda_max)
-            query_spectrum_w = query_spectrum[query_range]
-
-            s_window = np.logical_and(s_bands >= lambda_min, s_bands <= lambda_max)
-            s_spectrum_w = s_spectrum[s_window]
-
-            query_spectrum_r = resample(query_spectrum_w, 100)
-            s_spectrum_r = resample(s_spectrum_w, 100)
-
-            if use_gradient:
-                errs = np.gradient(query_spectrum_r) - np.gradient(s_spectrum_r)
-            else:
-                errs = query_spectrum_r - s_spectrum_r
-
-            if squared_errs:
-                errs = np.power(errs, 2)
-            else:
-                errs = np.abs(errs)
-
-            mean_err = np.sum(errs) # / len(query_spectrum)
-
-            s['error'] = mean_err
-
-        result.sort(key=lambda x: x['error'])
-
-        return result
-
-
-    @staticmethod
-    def compare_cube_to_spectrum(cube,
-                                 spectrum,
-                                 bands,
-                                 custom_range=None,
-                                 use_gradient=False,
-                                 squared_errs=True):
-
-        bands = np.array(bands)
-        spectrum = np.array(spectrum)
-        c_bands = np.array(cube.bands)
-
-        # resample if required
-        if not np.array_equal(bands, c_bands) or custom_range is not None:
-
-            if custom_range is None:
-                custom_range = (c_bands[0], c_bands[-1])
-            elif custom_range[0] >= custom_range[1]:
-                custom_range = (c_bands[0], c_bands[-1])
-
-            lambda_min = max(bands[0], custom_range[0])
-            lambda_max = min(bands[-1], custom_range[1])
-
-            query_window = np.logical_and(bands >= lambda_min, bands <= lambda_max)
-            spectrum_w = spectrum[query_window]
-
-            c_window = np.logical_and(c_bands >= lambda_min, c_bands <= lambda_max)
-            cube_data = cube.data[:, :, c_window]
-
-            spectrum = resample(spectrum_w, cube_data.shape[2])
+        mask1 = np.logical_and(x1 >= lambda_min, x1 <= lambda_max)
+        if is_cube:
+            y1_masked = y1[:, :, mask1]
         else:
-            cube_data = cube.data
+            y1_masked = y1[mask1]
 
+        mask2 = np.logical_and(x2 >= lambda_min, x2 <= lambda_max)
+        y2_masked = y2[mask2]
+
+        if y1_masked.size < 2 > y2_masked.size:
+            print('WARNING: compared spectra do not have sufficient overlap. Returning None')
+            return None
+
+        if not np.array_equal(x1[mask1], x2[mask2]):
+            y2_masked = resample(y2_masked, mask1.sum())
 
         if use_gradient:
-            cube_diff = np.gradient(cube_data, axis=2) - np.gradient(spectrum)
+            if is_cube:
+                errs = np.gradient(y1_masked, axis=2) - np.gradient(y2_masked)
+            else:
+                errs = np.gradient(y1_masked) - np.gradient(y2_masked)
         else:
-            cube_diff = cube_data - np.array(spectrum)
+            errs = y1_masked - y2_masked
+
         if squared_errs:
-            cube_diff = np.power(cube_diff, 2)
+            errs = np.power(errs, 2)
         else:
-            cube_diff = np.abs(cube_diff)
+            errs = np.abs(errs)
 
-        err_map = np.sum(cube_diff, 2)      # / cube.shape[2]
+        if is_cube:
+            return np.mean(errs, axis=2)
+        else:
+            return np.mean(errs)
 
-        return err_map
+    def search_spectrum(self,
+                        x,
+                        y,
+                        custom_range=None,
+                        use_gradient=False,
+                        squared_errs=True):
 
 
+        bands_query = x
+        spectrum_query = y
+        results = []
+        for d in self.data:
+            bands_db = np.array(d['bands'])
+            spectrum_db = np.array(d['spectrum'])
+            error = Database.compare_spectra(bands_query,
+                                             spectrum_query,
+                                             bands_db,
+                                             spectrum_db,
+                                             custom_range=custom_range,
+                                             use_gradient=use_gradient,
+                                             squared_errs=squared_errs)
+            if error is not None:
+                result = d
+                result['error'] = error
+                results.append(result)
 
-    # def compare_cube_to_db(self,
-    #                          cube,
-    #                          use_gradient=False,
-    #                          squared_errs=True,
-    #                          r_first_to_second=0.5,
-    #                          r_gt_zero=0.01,
-    #                          vis_dir=None):
-    #
-    #     map_stack = None
-    #     for s, i in zip(self.db, range(len(self.db))):
-    #         print('Computing differences with %s (%d/%d)...' % (s['name'], i+1, len(self.db)))
-    #
-    #         if use_gradient:
-    #             cube = np.gradient(cube, axis=2)
-    #             cube_diff = cube - s['gradient']
-    #         else:
-    #             cube_diff = cube - s['spectrum']
-    #         if squared_errs:
-    #             cube_diff = np.power(cube_diff, 2)
-    #         else:
-    #             cube_diff = np.abs(cube_diff)
-    #
-    #         cube_diff = np.sum(cube_diff, 2)
-    #         if squared_errs:
-    #             cube_diff = np.sqrt(cube_diff)
-    #
-    #         map_stack = cube_diff if map_stack is None else np.dstack((map_stack, cube_diff))
-    #
-    #
-    #     map_stack = map_stack*(-1) + map_stack.max()    # reverse
-    #     winner_map = np.argmax(map_stack, 2)
-    #     max_map = np.max(map_stack, 2)
-    #     map_stack_largestremoved = map_stack.copy()
-    #     for s, i in zip(self.db, range(len(self.db))):
-    #         map_stack_largestremoved[i == winner_map] = -1
-    #     max_map_second = np.max(map_stack_largestremoved, 2)
-    #
-    #     has_unique_winner = np.divide(max_map_second, max_map) < r_first_to_second
-    #
-    #     print('Creating visualizations...')
-    #     for s, i in zip(self.db, range(len(self.db))):
-    #         is_largest = winner_map == i
-    #         #set_zero = np.logical_not(is_largest)
-    #         set_zero = np.logical_not(np.logical_and(is_largest, has_unique_winner))
-    #         img = map_stack[:, :, i]
-    #         img[set_zero] = 0
-    #         # visualizations
-    #         n_gt_zero = np.sum(img[img>0])
-    #         if n_gt_zero / img.size > r_gt_zero:
-    #             if vis_dir is not None:
-    #                 if not os.path.exists(vis_dir):
-    #                     os.makedirs(vis_dir)
-    #                 plt.clf()
-    #                 plt.imshow(img)
-    #                 plt.colorbar()
-    #                 plt.title(s['name'])
-    #                 plt.savefig(os.path.join(vis_dir, s['name'] + '_bestmatch.png'))
-    #     print('Done!')
+        results.sort(key=lambda v: v['error'])
+        return results
