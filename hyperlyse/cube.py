@@ -14,8 +14,8 @@ class Cube:
         self.ncols = 0
         self.nbands = 0
         self.bands = []
-        self.rgb_layers = (0,0,0)
-
+        self.rgb_layers = (0, 0, 0)
+        self.device = 'unknown device'
         self.__read_data(file_data)
 
 
@@ -50,6 +50,10 @@ class Cube:
             self.rgb_layers = (self.lambda2layer(Cube.DEFAULT_RGB[0]),
                                self.lambda2layer(Cube.DEFAULT_RGB[1]),
                                self.lambda2layer(Cube.DEFAULT_RGB[2]))
+        for device_key in ['sensor type', 'instrument name']:
+            if device_key in header.metadata:
+                self.device = header.metadata[device_key]
+                break
 
         # read white and black ref
         try:

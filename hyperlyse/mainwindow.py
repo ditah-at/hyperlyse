@@ -3,15 +3,18 @@ import numpy as np
 import numbers
 from PyQt6.QtGui import QPixmap, QImage, QGuiApplication
 from PyQt6.QtCore import Qt, QUrl, QRect, QPoint, QSize
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QInputDialog, QMessageBox, QRubberBand, QDoubleSpinBox
-from PyQt6.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QSpinBox, QFrame
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout, QTabWidget, QScrollArea, QSizePolicy
-import matplotlib.image
+from PyQt6.QtWidgets import QMainWindow, QFileDialog, QMessageBox, QRubberBand, QDoubleSpinBox, QRadioButton
+from PyQt6.QtWidgets import QWidget, QLabel, QCheckBox, QSlider, QPushButton, QComboBox, QSpinBox, QFrame, QLineEdit
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout, QTabWidget, QScrollArea, QSizePolicy, QDialog
 from matplotlib import pyplot as plt
-from hyperlyse import Database, PlotCanvas, Cube, principal_component_analysis, Exports, QRangeSlider
+import hyperlyse as hyper
 
 hyper_quotes = ['"Hyper, hyper. We need the bass drum." - H.P. Baxxter',
                 '"Travelling through hyper space ain\'t like dusting crops, boy!" - Han Solo']
+
+
+
+
 
 class MainWindow(QMainWindow):
     def __init__(self, config, rawfile=None):
@@ -27,7 +30,7 @@ class MainWindow(QMainWindow):
         self.error_map_recompute_flag = True    # do we have to recompute the error map?
         self.point_selection = None
         self.rect_selection = None
-        self.spectrum = None
+        self.spectrum_y = None
         self.rawfile = rawfile
 
         self.zoom = 1.0
@@ -36,8 +39,11 @@ class MainWindow(QMainWindow):
         self.drag_start_hs_v = 0
         self.drag_start_vs_v = 0
 
-        self.db = Database()
-        self.db.load_db(self.config.default_db_file)
+        self.db = hyper.Database(config.default_db_path)
+
+
+        self.last_source_name = ''
+        self.last_export_dir = ''
 
         ########################
         ########################
@@ -50,13 +56,12 @@ class MainWindow(QMainWindow):
         cw = QWidget(self)
         self.setCentralWidget(cw)
         layout_outer = QHBoxLayout(cw)
-        cw.setLayout(layout_outer)
 
         #####################
         ### image display ###
         #####################
 
-        layout_img = QVBoxLayout(cw)
+        layout_img = QVBoxLayout()
         layout_outer.addLayout(layout_img)
 
         self.lbl_img = QLabel(cw)
@@ -77,9 +82,9 @@ class MainWindow(QMainWindow):
         layout_img.addWidget(self.scroll_img)
 
         # viewing controls
-        layout_img_ctrl = QGridLayout(cw)
+        layout_img_ctrl = QGridLayout()
         layout_img.addLayout(layout_img_ctrl)
-        lbl_zoom_static = QLabel('Zoom:')
+        lbl_zoom_static = QLabel('Zoom')
         layout_img_ctrl.addWidget(lbl_zoom_static, 0, 0)
         self.sl_zoom = QSlider(cw)
         self.sl_zoom.setOrientation(Qt.Orientation.Horizontal)
@@ -91,8 +96,7 @@ class MainWindow(QMainWindow):
         self.lbl_zoom = QLabel('100%')
         layout_img_ctrl.addWidget(self.lbl_zoom, 0, 2)
 
-        layout_img.addLayout(layout_img_ctrl)
-        lbl_brightness_static = QLabel('Brightness:')
+        lbl_brightness_static = QLabel('Brightness')
         layout_img_ctrl.addWidget(lbl_brightness_static, 1, 0)
         self.sl_brightness = QSlider(cw)
         self.sl_brightness.setOrientation(Qt.Orientation.Horizontal)
@@ -106,7 +110,7 @@ class MainWindow(QMainWindow):
 
         # content controls
         lbl_img_display = QLabel(cw)
-        lbl_img_display.setText('Mode:')
+        lbl_img_display.setText('Mode')
         lbl_img_display.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout_img_ctrl.addWidget(lbl_img_display, 2, 0)
 
@@ -149,13 +153,13 @@ class MainWindow(QMainWindow):
         tab_similarity.setLayout(QHBoxLayout())
         self.tabs_img_ctrl.addTab(tab_similarity, 'similarity')
 
-        self.cmb_reference = QComboBox(tab_similarity)
-        self.cmb_reference.addItem('SELECTED PIXEL', -1)
-        for s, i in zip(self.db.data, range(len(self.db.data))):
-            self.cmb_reference.addItem(s['name'], i)
-        self.cmb_reference.currentIndexChanged.connect(self.update_image_label)
-        self.cmb_reference.currentIndexChanged.connect(self.set_recompute_errmap_flag)
-        tab_similarity.layout().addWidget(self.cmb_reference)
+        self.rb_sim_cube = QRadioButton('Current cube selection', tab_similarity)
+        tab_similarity.layout().addWidget(self.rb_sim_cube)
+        self.rb_sim_db = QRadioButton('Current database selection', tab_similarity)
+        tab_similarity.layout().addWidget(self.rb_sim_db)
+        self.rb_sim_cube.setChecked(True)
+        self.rb_sim_cube.toggled.connect(self.set_recompute_errmap_flag)
+        self.rb_sim_cube.toggled.connect(self.update_image_label)
 
         lbl_sim_t = QLabel(tab_similarity)
         lbl_sim_t.setText('t=')
@@ -195,7 +199,7 @@ class MainWindow(QMainWindow):
         self.btn_save_img = QPushButton('Save\nImage')
         self.btn_save_img.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum))
         layout_img_ctrl.addWidget(self.btn_save_img, 2, 2)
-        self.btn_save_img.pressed.connect(self.export_image)
+        self.btn_save_img.pressed.connect(self.handle_action_export_image)
 
 
         # add separator
@@ -207,28 +211,15 @@ class MainWindow(QMainWindow):
         ########################
         ### specrtra display ###
         ########################
-        layout_spectra = QVBoxLayout(cw)
+        layout_spectra = QVBoxLayout()
         layout_outer.addLayout(layout_spectra)
 
-        # db search controls
-        layout_search_ctrls = QHBoxLayout(self)
-        layout_spectra.addLayout(layout_search_ctrls)
-        layout_search_ctrls.addStretch()
-        layout_search_ctrls.addWidget(QLabel('show'))
-        self.sb_nspectra = QSpinBox(self)
-        self.sb_nspectra.setMinimum(0)
-        self.sb_nspectra.setMaximum(10)
-        self.sb_nspectra.setValue(0)
-        self.sb_nspectra.valueChanged.connect(self.update_spectrum_plot)
-        layout_search_ctrls.addWidget(self.sb_nspectra)
-        layout_search_ctrls.addWidget(QLabel('most similar spectra'))
-
         #### plot canvas & range controls
-        layout_plot = QHBoxLayout(cw)
+        layout_plot = QHBoxLayout()
         layout_spectra.addLayout(layout_plot)
 
         # y-range control
-        layout_yrangecontrol = QVBoxLayout(cw)
+        layout_yrangecontrol = QVBoxLayout()
         layout_plot.addLayout(layout_yrangecontrol)
 
         self.lbl_ymax = QLabel('ymax')
@@ -254,16 +245,31 @@ class MainWindow(QMainWindow):
         layout_yrangecontrol.addWidget(self.sb_ymin)
 
         # plot
-        self.plot = PlotCanvas(cw)
+        self.plot = hyper.PlotCanvas(cw)
         layout_plot.addWidget(self.plot)
 
 
-        # x-range control
-        layout_compare_ctrl = QHBoxLayout(cw)
-        layout_spectra.addLayout(layout_compare_ctrl)
+        ###### spectrum and database controls
 
-        layout_compare_ctrl.addWidget(QLabel('Range'))
-        self.rs_xrange = QRangeSlider(cw)
+        layout_spectra_ctrl = QGridLayout()
+        layout_spectra.addLayout(layout_spectra_ctrl)
+
+        layout_spectra_ctrl.addWidget(QLabel('Database'), 0, 0)
+        self.le_db_path = QLineEdit(self.config.default_db_path)
+        self.le_db_path.setEnabled(False)
+        layout_spectra_ctrl.addWidget(self.le_db_path, 0, 1)
+        self.btn_change_db = QPushButton('change..')
+        self.btn_change_db.pressed.connect(self.handle_action_set_db_dir)
+        layout_spectra_ctrl.addWidget(self.btn_change_db, 0, 2)
+
+
+
+        # comparison / x-range control
+        layout_spectra_ctrl.addWidget(QLabel('Comparison'), 1, 0)
+        layout_compare_ctrl = QHBoxLayout()
+        layout_spectra_ctrl.addLayout(layout_compare_ctrl, 1, 1)
+
+        self.rs_xrange = hyper.QRangeSlider(cw)
         self.rs_xrange.setRange(0, 1000)
         self.rs_xrange.setMin(0)
         self.rs_xrange.setMax(1000)
@@ -288,35 +294,55 @@ class MainWindow(QMainWindow):
         self.cb_gradient.stateChanged.connect(self.set_recompute_errmap_flag)
         layout_compare_ctrl.addWidget(self.cb_gradient)
 
+        # comparison spectra source
+        lbl_source = QLabel('Source')
+        lbl_source.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout_spectra_ctrl.addWidget(lbl_source, 2, 0)
+
+        self.tabs_spectra_source = QTabWidget(cw)
+        self.tabs_spectra_source.currentChanged.connect(self.update_spectrum_plot)
+        self.tabs_spectra_source.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum))
+        layout_spectra_ctrl.addWidget(self.tabs_spectra_source, 2, 1)
+
+        # select spectrum -> index 0
+        self.tab_select = QWidget()
+        self.tab_select.setLayout(QHBoxLayout())
+        self.tabs_spectra_source.addTab(self.tab_select, 'Select')
+        self.tab_select.layout().addWidget(QLabel('Compare with spectrum'))
+        self.cmb_comparison_ref = QComboBox(self.tab_select)
+        self.cmb_comparison_ref.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.fill_db_spectra_combobox()
+        self.cmb_comparison_ref.currentIndexChanged.connect(self.update_spectrum_plot)
+        self.cmb_comparison_ref.currentIndexChanged.connect(self.set_recompute_errmap_flag)
+        self.cmb_comparison_ref.currentIndexChanged.connect(self.update_image_label)
+        self.tab_select.layout().addWidget(self.cmb_comparison_ref)
+        self.tab_select.layout().addStretch()
+
+        # db search -> index 1
+        tab_search = QWidget()
+        tab_search.setLayout(QHBoxLayout())
+        self.tabs_spectra_source.addTab(tab_search, 'Search')
+        tab_search.layout().addWidget(QLabel('show'))
+        self.sb_nspectra = QSpinBox(self)
+        self.sb_nspectra.setMinimum(0)
+        self.sb_nspectra.setMaximum(10)
+        self.sb_nspectra.setValue(3)
+        self.sb_nspectra.valueChanged.connect(self.update_spectrum_plot)
+        tab_search.layout().addWidget(self.sb_nspectra)
+        tab_search.layout().addWidget(QLabel('most similar spectra in database'))
+        tab_search.layout().addStretch()
+
+
 
         ### export controls
-        layout_export_ctrl = QHBoxLayout(cw)
-        layout_spectra.addLayout(layout_export_ctrl)
-
+        # layout_export_ctrl = QHBoxLayout(cw)
+        # layout_spectra.addLayout(layout_export_ctrl)
+        #
         btn_export = QPushButton(cw)
-        btn_export.setText('Export Spectrum')
+        btn_export.setText('Save\nSpectrum')
         btn_export.clicked.connect(self.handle_action_export_spectrum)
-        layout_export_ctrl.addWidget(btn_export)
-
-        self.cb_incl_img = QCheckBox(cw)
-        self.cb_incl_img.setChecked(True)
-        self.cb_incl_img.setText('include rgb image')
-        layout_export_ctrl.addWidget(self.cb_incl_img)
-
-        self.cb_incl_graph = QCheckBox(cw)
-        self.cb_incl_graph.setChecked(True)
-        self.cb_incl_graph.setText('include graph image')
-        layout_export_ctrl.addWidget(self.cb_incl_graph)
-
-        sep = QFrame(cw)
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFrameShadow(QFrame.Shadow.Sunken)
-        layout_export_ctrl.addWidget(sep)
-
-        btn_add_to_db = QPushButton(cw)
-        btn_add_to_db.setText('Add to DB..')
-        btn_add_to_db.clicked.connect(self.handle_btn_add_to_db_clicked)
-        layout_export_ctrl.addWidget(btn_add_to_db)
+        btn_export.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum))
+        layout_spectra_ctrl.addWidget(btn_export, 1, 2, 2, 1)
 
         ###################
         ### create menu ###
@@ -329,9 +355,11 @@ class MainWindow(QMainWindow):
         action_load_data = menu_file.addAction('&Load Hyperspectral Image...')
         action_load_data.triggered.connect(self.handle_action_load_data)
 
-        self.action_save_img = menu_file.addAction('&Save current image...')
-        self.action_save_img.setEnabled(False)
-        self.action_save_img.triggered.connect(self.export_image)
+        action_load_data = menu_file.addAction('&Set database...')
+        action_load_data.triggered.connect(self.handle_action_set_db_dir)
+
+        action_save_img = menu_file.addAction('&Save current image...')
+        action_save_img.triggered.connect(self.handle_action_export_image)
 
         action_export_spectrum = menu_file.addAction('&Save selected spectrum...')
         action_export_spectrum.triggered.connect(self.handle_action_export_spectrum)
@@ -377,6 +405,7 @@ class MainWindow(QMainWindow):
     def reset_ui(self):
         self.point_selection = None
         self.rect_selection = None
+        self.spectrum_y = None
         self.error_map = None
         self.error_map_recompute_flag = True
         self.tabs_img_ctrl.setCurrentIndex(0)
@@ -384,10 +413,6 @@ class MainWindow(QMainWindow):
         self.lbl_lambda.setText(self.get_lambda_slider_text(0))
         if self.cube is not None:
             self.sl_lambda.setMaximum(self.cube.nbands - 1)
-            # self.sl_xmin.setMinimum(self.cube.bands[0])
-            # self.sl_xmin.setMaximum(self.cube.bands[-1])
-            # self.sl_xmax.setMinimum(self.cube.bands[0])
-            # self.sl_xmax.setMaximum(self.cube.bands[-1])
             self.rs_xrange.setMin(self.cube.bands[0])
             self.rs_xrange.setMax(self.cube.bands[-1])
             self.rs_xrange.setRange(self.cube.bands[0], self.cube.bands[-1])
@@ -399,7 +424,6 @@ class MainWindow(QMainWindow):
         self.error_map_recompute_flag = True
 
     def update_image_label(self):
-        print('update_image_label')
         img = None
         # I. get base image, depending on selected tab
         # 0 - RGB image
@@ -415,26 +439,25 @@ class MainWindow(QMainWindow):
                     self.lbl_lambda.setText(self.get_lambda_slider_text(layer))
         # 2 - similarity
         elif self.tabs_img_ctrl.currentIndex() == 2:
-            ref_spec = None
-            ref_bands = None
-            if self.cmb_reference.currentData() == -1:
-                if self.spectrum is not None:
-                    ref_spec = self.spectrum
-                    ref_bands = self.cube.bands
-            else:
-                ref_spec = self.db.data[self.cmb_reference.currentData()]['spectrum']
-                ref_bands = self.db.data[self.cmb_reference.currentData()]['bands']
-            if ref_spec is not None and self.cube is not None:
+            ref_x = None
+            ref_y = None
+            if self.rb_sim_cube.isChecked():
+                if self.spectrum_y is not None:
+                    ref_x = self.cube.bands
+                    ref_y = self.spectrum_y
+            elif self.cmb_comparison_ref.currentData() >= 0:
+                ref_x = self.db.spectra[self.cmb_comparison_ref.currentData()].x
+                ref_y = self.db.spectra[self.cmb_comparison_ref.currentData()].y
+            if ref_y is not None and self.cube is not None:
                 if self.error_map_recompute_flag:
                     self.error_map_recompute_flag = False
                     self.error_map = self.db.compare_spectra(np.array(self.cube.bands),
                                                              self.cube.data,
-                                                             np.array(ref_bands),
-                                                             ref_spec,
+                                                             np.array(ref_x),
+                                                             ref_y,
                                                              custom_range=(self.rs_xrange.start(), self.rs_xrange.end()),
                                                              use_gradient=self.cb_gradient.isChecked(),
                                                              squared_errs=self.cb_squared.isChecked())
-
                 err_map_t = self.error_map.copy()
                 t = (100 - self.sl_sim_t.value()) / 100 * err_map_t.max()
                 err_map_t[err_map_t > t] = t
@@ -445,7 +468,7 @@ class MainWindow(QMainWindow):
             component = self.sl_component.value()
             if self.cube is not None:
                 if self.pca is None:
-                    self.pca = principal_component_analysis(self.cube.data, p_keep=0.01, n_components=10)
+                    self.pca = hyper.principal_component_analysis(self.cube.data, p_keep=0.01, n_components=10)
                 if 0 <= component < self.pca.shape[2]:
                     img = self.pca[:, :, component]
                     img = (img - img.min()) / (img.max() - img.min())
@@ -462,7 +485,7 @@ class MainWindow(QMainWindow):
             img = np.uint8(img * 255)
 
             # draw cross
-            img = self.draw_marker(img, fatten=True)
+            img = self.draw_marker(img)
 
             width = img.shape[1]
             height = img.shape[0]
@@ -489,38 +512,58 @@ class MainWindow(QMainWindow):
                              self.sb_ymin.value(),
                              self.sb_ymax.value())
 
-        if self.spectrum is not None:
+        if self.spectrum_y is not None:
+            # spectrum selected from cube (query)
             self.plot.plot(self.cube.bands,
-                           self.spectrum,
+                           self.spectrum_y,
                            label='query',
                            hold=False)
 
-            if self.sb_nspectra.value() > 0:
-                result = self.db.search_spectrum(self.cube.bands,
-                                                 self.spectrum,
-                                                 custom_range=(self.rs_xrange.start(), self.rs_xrange.end()),
-                                                 use_gradient=self.cb_gradient.isChecked(),
-                                                 squared_errs=self.cb_squared.isChecked())
-                for s in result[:self.sb_nspectra.value()]:
-                    self.plot.plot(s['bands'],
-                                   s['spectrum'],
-                                   label='%s (e=%.3f)' % (s['name'], s['error']),
-                                   linewidth=1,
-                                   hold=True)
+            # database spectra
+            # 0 - select
+            if self.tabs_spectra_source.currentIndex() == 0:
+                if self.db is not None:
+                    if self.cmb_comparison_ref.currentData() >= 0:
+                        reference = self.db.spectra[self.cmb_comparison_ref.currentData()]
+                        error = hyper.Database.compare_spectra(self.cube.bands,
+                                                               self.spectrum_y,
+                                                               reference.x,
+                                                               reference.y,
+                                                               custom_range=(self.rs_xrange.start(), self.rs_xrange.end()),
+                                                               use_gradient=self.cb_gradient.isChecked(),
+                                                               squared_errs=self.cb_squared.isChecked())
+                        self.plot.plot(reference.x,
+                                       reference.y,
+                                       label=f"{reference.display_string()} (mean err={error:10.3E})",
+                                       linewidth=1,
+                                       hold=True)
+            # 1 - search
+            elif self.tabs_spectra_source.currentIndex() == 1:
+                if self.sb_nspectra.value() > 0:
+                    results = self.db.search_spectrum(self.cube.bands,
+                                                      self.spectrum_y,
+                                                      custom_range=(self.rs_xrange.start(), self.rs_xrange.end()),
+                                                      use_gradient=self.cb_gradient.isChecked(),
+                                                      squared_errs=self.cb_squared.isChecked())
+                    for result in results[:self.sb_nspectra.value()]:
+                        self.plot.plot(result['spectrum'].x,
+                                       result['spectrum'].y,
+                                       label=f"{result['spectrum'].display_string()} (mean err={result['error']:10.3E})",
+                                       linewidth=1,
+                                       hold=True)
+
 
     ##################
     # loading HS data
     ##################
     def load_data(self, filename):
         try:
-            self.cube = Cube(filename)
+            self.cube = hyper.Cube(filename)
             self.rgb = self.cube.to_rgb()
             self.pca = None
             self.reset_ui()
             self.update_image_label()
             self.rawfile = filename
-            self.action_save_img.setEnabled(True)
-            # self.action_match_cube.setEnabled(True)
             self.statusBar().showMessage(f'Loaded: {os.path.basename(filename)} | '
                                          f'{self.cube.ncols} x {self.cube.nrows} px | '
                                          f'{self.cube.nbands} bands.')
@@ -576,14 +619,14 @@ class MainWindow(QMainWindow):
                     cube_slice = self.cube.data[rect.y():rect.y()+rect.height(),
                                                 rect.x():rect.x()+rect.width(),
                                                 :]
-                    self.spectrum = np.mean(cube_slice, axis=(0, 1))
+                    self.spectrum_y = np.mean(cube_slice, axis=(0, 1))
                     self.rect_selection = rect
                     self.point_selection = None
                 else:
                     pos_img = self.m2i(event.pos())
                     if 0 <= pos_img.x() < self.cube.ncols and 0 <= pos_img.y() < self.cube.nrows:
                         print(f"Selected point: ({pos_img.x()}, {pos_img.y()})")
-                        self.spectrum = self.cube.data[pos_img.y(), pos_img.x(), :]
+                        self.spectrum_y = self.cube.data[pos_img.y(), pos_img.x(), :]
                         self.point_selection = pos_img
                         self.rect_selection = None
                 # update ui
@@ -633,57 +676,18 @@ class MainWindow(QMainWindow):
         self.scroll_img.horizontalScrollBar().setValue(int(self.scroll_img.verticalScrollBar().maximum() * hs_r))
         self.scroll_img.verticalScrollBar().setValue(int(self.scroll_img.verticalScrollBar().maximum() * vs_r))
 
-    def handle_action_export_spectrum(self):
-        if self.spectrum is not None:
-            expdir = os.path.dirname(self.rawfile)
-            basename = os.path.splitext(os.path.basename(self.rawfile))[0]
-            sel_str = self.selection_str()
-            expfile = os.path.join(expdir, f"{basename}_{sel_str}.jdx")
-
-            file_name, _ = QFileDialog.getSaveFileName(None, "Save spectrum", expfile,
-                                                      "JCAMP-DX (*.jdx *.dx *jcm);;Plain x,y pairs (*.dpt *.csv *.txt )")
-            if file_name:
-                valid = False
-                if os.path.splitext(file_name)[1] in ['.dx', '.jdx', '.jcm']:
-                    Exports.export_jcamp(x_data=self.cube.bands,
-                                    y_data=self.spectrum,
-                                    spectrum_name=f"{os.path.basename(self.rawfile).split('.')[0]}, at {sel_str}",
-                                    device_name=f"SpecimIQ/Hyperlyse{self.config.version}",
-                                    file_name=file_name)
-                    valid = True
-                elif os.path.splitext(file_name)[1] in ['.dpt', '.txt', '.csv']:
-                    Exports.export_dpt(self.cube.bands, self.spectrum, file_name)
-                    valid = True
-
-                if valid:
-                    if self.cb_incl_img.isChecked() and self.rgb is not None:
-                        img = self.rgb
-                        img = np.uint8(img * (255 / img.max()))
-                        img = self.draw_marker(img, self.config.cross_size)
-                        base, ext = os.path.splitext(file_name)
-                        matplotlib.image.imsave(base + '.png', img.astype(np.uint8))
-
-                    if self.cb_incl_graph.isChecked():
-                        base, ext = os.path.splitext(file_name)
-                        self.plot.save(base + '_graph.png')
-                else:
-                    print('warning: invalid file extension given. spectrum not saved. allowed: '
-                          '.dpt, .txt (plain comma-separated x,y values), .dx, .jdx, .jcm (JCAMP-DX)')
-
-
-
-    def export_image(self):
+    def handle_action_export_image(self):
         expdir = os.path.dirname(self.rawfile)
-        basename = os.path.basename(self.rawfile).split('.')[0]
+        basename = self.dataset_name()
         if self.tabs_img_ctrl.currentIndex() == 0:
             suffix = 'rgb'
         elif self.tabs_img_ctrl.currentIndex() == 1:
             suffix = self.lbl_lambda.text()
         elif self.tabs_img_ctrl.currentIndex() == 2:
-            if self.cmb_reference.currentData() == -1:
+            if self.cmb_similaritymap_ref.currentData() == -1:
                 suffix = f'sim{self.selection_str()}'
             else:
-                suffix = f'sim({self.cmb_reference.currentText()})'
+                suffix = f'sim({self.cmb_similaritymap_ref.currentText()})'
         elif self.tabs_img_ctrl.currentIndex() == 3:
             suffix = f'pc{self.sl_component.value()}'
         else:
@@ -695,40 +699,46 @@ class MainWindow(QMainWindow):
         if fileName:
             self.lbl_img.pixmap().save(fileName)
 
-    def handle_btn_add_to_db_clicked(self):
-        if self.spectrum is not None:
-            name, ok = QInputDialog.getText(self,
-                                            'Add spectrum to database',
-                                            'sample name: ')
-            if ok and name:
-                if name in [n['name'] for n in self.db.data]:
-                    answer = QMessageBox.question(self,
-                                                  'Name already exists!',
-                                                  'A sample with the name %s already exists in the database. Overwrite?' % name
-                                                  )
-                    if answer == QMessageBox.StandardButton.Yes:
-                        self.db.add_to_db(name, self.spectrum, self.cube.bands)
-                        self.db.save_db()
-                        self.cmb_reference.addItem(name, len(self.db.data) - 1)
-
+    def handle_action_export_spectrum(self):
+        if self.spectrum_y is not None:
+            source_name_default = self.last_source_name if self.last_source_name else self.dataset_name()
+            info_dialog = hyper.SaveSpectrumDialog(self, source_name_default)
+            if info_dialog.exec() == QDialog.DialogCode.Accepted:
+                info_dialog_result = info_dialog.get_data()
+                self.last_source_name = info_dialog_result['source']
+                metadata = hyper.Metadata(id=info_dialog_result['id'],
+                                          description=info_dialog_result['description'],
+                                          source_object=info_dialog_result['source'],
+                                          source_file=self.dataset_name(),
+                                          source_coordinates=self.selection_str(),
+                                          device_info=f"{self.cube.device} / Hyperlyse {self.config.version}",
+                                          intensity=info_dialog_result['intensity'])
+                spectrum = hyper.Spectrum(self.cube.bands, self.spectrum_y, metadata)
+                if self.last_export_dir:
+                    dir_default = self.last_export_dir
+                elif self.db is not None:
+                    dir_default = self.db.root
                 else:
-                    self.db.add_to_db(name, self.spectrum, self.cube.bands)
-                    self.db.save_db()
-                    self.cmb_reference.addItem(name, len(self.db.data) - 1)
+                    dir_default = '.'
+                filename_default = f"{self.dataset_name()}_{self.selection_str()}_{spectrum.display_string(separator='_')}.jdx"
+                file_spectrum, _ = QFileDialog.getSaveFileName(None, "Save spectrum", os.path.join(dir_default, filename_default),
+                                                               "JCAMP-DX (*.jdx *.dx *jcm);;Plain x,y pairs (*.dpt *.csv *.txt )")
+                if file_spectrum:
+                    img = np.uint8(self.rgb * (255 / self.rgb.max()))
+                    img = self.draw_marker(img)
+                    hyper.Database.export_spectrum(file_spectrum,
+                                                   spectrum,
+                                                   image=img)
 
-    ###########
-    # analysis
-    ###########
-    def handle_action_create_db(self):
-        dirname = QFileDialog.getExistingDirectory(None, "Select root directory for database creation", "")
-        if dirname:
-            Database.create_database(dirname, True)
 
-    def handle_action_load_db(self):
-        filename, _ = QFileDialog.getOpenFileName(None, "Select file containing reference spectra",
-                                                  "", "json files (*.json)")
-        if filename:
-            self.db.load_db(filename)
+    def handle_action_set_db_dir(self):
+        db_dir = QFileDialog.getExistingDirectory(self, "Select directory containing reference spectra in jcamp-dx format",
+                                                  self.db.root)
+        if db_dir:
+            self.db.refresh_from_disk(db_dir)
+            self.fill_db_spectra_combobox()
+            self.le_db_path.setText(self.db.root)
+
 
     ###########
     # helpers
@@ -746,7 +756,7 @@ class MainWindow(QMainWindow):
         else:
             raise ValueError()
 
-    def draw_marker(self, img, fatten=False):
+    def draw_marker(self, img):
         """
         Draws a cross (if a point is selected) or a rectangle (if an area is selected) onto an image
         :param img: numpy array, r*c or r*c*3
@@ -800,18 +810,29 @@ class MainWindow(QMainWindow):
         img = img * (1 - self.config.marker_alpha) + img_marker * self.config.marker_alpha
         return img.astype(np.uint8)
 
-    def selection_str(self):
+    def selection_coords(self):
         if self.rect_selection is not None:
             r = self.rect_selection
-            return f'({r.left()},{r.top()},{r.width()},{r.height})'
+            return [r.left(), r.top(), r.width(), r.height()]
         elif self.point_selection is not None:
             p = self.point_selection
-            return f'({p.x()},{p.y()})'
+            return [p.x(), p.y()]
         else:
-            return '(unknown)'  # can that happen?
+            return []  # can that happen?
+
+    def selection_str(self):
+        return f'({",".join([str(c) for c in self.selection_coords()])})'
 
     def get_lambda_slider_text(self, layer_idx):
         return '%.1fnm' % self.cube.bands[layer_idx]
+
+    def fill_db_spectra_combobox(self):
+        self.cmb_comparison_ref.clear()
+        self.cmb_comparison_ref.addItem('(none)', -1)
+        if self.db is not None:
+            for i, s in enumerate(self.db.spectra):
+                self.cmb_comparison_ref.addItem(s.display_string(with_description=True), i)
+        self.cmb_comparison_ref.adjustSize()
 
     def visualize_error_map(self, error_map):
         # invert and map to [0, 1]:
@@ -819,3 +840,7 @@ class MainWindow(QMainWindow):
         # apply color map
         cm = plt.get_cmap('viridis')
         return cm(similarity_map)[:, :, :3]
+
+    def dataset_name(self):
+        if self.rawfile is not None:
+            return os.path.splitext(os.path.basename(self.rawfile))[0]

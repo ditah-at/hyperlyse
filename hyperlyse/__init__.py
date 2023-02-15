@@ -1,8 +1,8 @@
+from hyperlyse.config import Config
 from hyperlyse.cube import Cube
-from hyperlyse.plotcanvas import PlotCanvas
+from hyperlyse.customwidgets import PlotCanvas, SaveSpectrumDialog
 from hyperlyse.qrangeslider import QRangeSlider
-from hyperlyse.database import Database
+from hyperlyse.database import Database, Metadata, Spectrum
 from hyperlyse.analysis import principal_component_analysis
-from hyperlyse.exports import Exports
 from hyperlyse.mainwindow import MainWindow
 import hyperlyse.main

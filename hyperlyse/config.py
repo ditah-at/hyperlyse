@@ -1,4 +1,5 @@
 import json
+import os
 class Config:
     def __init__(self,
                  version,
@@ -11,12 +12,12 @@ class Config:
         self.version = version
         with open(config_json, 'r') as f:
             cfg = json.load(f)
-        self.default_db_file = cfg['DEFAULT_DB_FILE']
+        self.default_db_path = cfg['DEFAULT_DB_PATH'] if os.path.isdir(cfg['DEFAULT_DB_PATH']) else os.path.abspath('.')
         self.scroll_speed = cfg['SCROLL_SPEED']
         self.cross_size = cfg['CROSS_SIZE']
         self.marker_colors = cfg['MARKER_COLORS']
         self.marker_alpha = cfg['MARKER_ALPHA']
-        self.initial_image_width_ratio = cfg['INITIAL_IMAGE_WIDTH_RATIO']
+        self.initial_image_width_ratio = 0.45
 
 
     def infotext(self):

@@ -4,7 +4,7 @@ Hyperspectral Image Analysis tool
 
 ---
 
-Documentation coming soon maybe.
+See directory <code>doc</code> for documentation.
 
 ---
 ## Changelog
@@ -16,6 +16,28 @@ Documentation coming soon maybe.
 * semitransparent markers 
 * R011 define custom spectral range (x-axis) used for all comparison operations (with UI element)
 * R012 select spectrum by rectangle (average)
+* R013 new database architecture
+  - DETAILED REQUIREMENTS 
+    - load and save, portable db format 
+    - select, display and compare specific DB spectrum
+    - extended fields/metadata for database spectra
+    - image of source material
+  - SOLUTION
+    - based on file system
+    - for each spectrum, store:
+      - jcamp-dx file with spectrum data and metadata
+      - png image with visualization of source
+    - load database -> recursivly parse arbitryry folder, or load single file
+    - save to database -> just save anywhere
+    - delete from database -> delete from filesystem
+    - portable -> just copy filesystem
+    - new fields and where they are stored in jcamp-dx:
+      - name/id ==> ##TITLE
+      - origin (e.g. name of color poster or manuscript) ==> ##TITLE
+      - original HSI file ==> ##SOURCE REFERENCE
+      - rectangle of measurement ==> ##SOURCE REFERENCE
+      - measurement device ==> ##SPECTROMETER/DATASYSTEM
+      - pigment intensity (light, medium, dark) ==> ##SAMPLE DESCRIPTION
 * in the process: lots of internal refactoring
 
 ### v1.2
@@ -36,27 +58,7 @@ Documentation coming soon maybe.
 * advanced image view modes
 
 ### open feature requests
-* R013 new database architecture
-  - REQUIREMENTS 
-    - load and save, portable db format 
-    - select, display and compare specific DB spectrum
-    - extended fields for database spectra:
-      - name
-      - origin (e.g. name of poster)
-      - original HSI file
-      - rectangle of measurement
-      - selected area as RGB image
-      - measurement device
-      - pigment intensity (light, medium, dark)
-  - SOLUTION
-    - based on file system
-    - for each spectrum, store:
-      - jcamp-dx file with spectrum data and metadata
-      - png image with visualization
-    - load database -> recursivly parse arbitryry folder, or load single file
-    - save to database -> just save anywhere
-    - delete from database -> delete from filesystem
-    - portable -> just copy filesystem
+(none)
     
 ---
 

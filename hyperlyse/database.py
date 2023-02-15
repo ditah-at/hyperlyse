@@ -1,108 +1,194 @@
 import os
+import re
 import json
 import numpy as np
-from matplotlib import pyplot as plt
-from hyperlyse import Cube
+import matplotlib.image
 from scipy.signal import resample
+import collections
+
+
+class Metadata:
+    def __init__(self,
+                 id,
+                 description='',
+                 source_object='',
+                 source_file='',
+                 source_coordinates='',
+                 device_info='',
+                 intensity=''
+                 ):
+        self.id = id
+        self.description = description
+        self.source_object = source_object
+        self.source_file = source_file
+        self.source_coordinates = source_coordinates
+        self.device_info = device_info
+        self.intensity = intensity
+
+
+class Spectrum:
+    def __init__(self, x, y, metadata: Metadata):
+        self.x = np.array(x)
+        self.y = np.array(y)
+        self.metadata = metadata
+
+    def display_string(self, with_description=False, separator=' | '):
+        values = [self.metadata.source_object,
+                  self.metadata.id]
+        if with_description:
+            values.append(self.metadata.description)
+        values = [v for v in values if v]
+        return separator.join(values)
+
+    def save_dpt(self, file_name):
+        data = np.transpose([np.float32(self.x), np.float32(self.y)])
+        np.savetxt(file_name, data, fmt='%.4f', delimiter=',')
+
+    def save_jcamp(self, file_name):
+        # prepare output file content
+        data = collections.OrderedDict()  # in jcamp, order of elements is kind of important..
+        data['##TITLE'] = f'{self.metadata.id} | {self.metadata.source_object}'
+        data['##JCAMP-DX'] = "5.1"
+        data['##DATA TYPE'] = "UV/VIS SPECTRUM"
+        data['##ORIGIN'] = "CIMA"
+        data['##OWNER'] = "CIMA"
+
+        data['##DATA CLASS'] = 'XYDATA'
+        data['##SPECTROMETER/DATASYSTEM'] = self.metadata.device_info
+        data['##SOURCE REFERENCE'] = f'{self.metadata.source_file} | {self.metadata.source_coordinates}'
+        data['##SAMPLE DESCRIPTION'] = f'{self.metadata.description} | {self.metadata.intensity}'
+        ##INSTRUMENTAL PARAMETERS=(STRING).This optional field is a list of pertinent instrumental settings. Only
+        # settings which are essential for applications should be included.
+        data['##SAMPLING PROCEDURE'] = "MODE=reflection"
+        # First entry in this field should be MODE of observation (transmission,
+        # specular reflection, PAS, matrix isolation, photothermal beam deflection, etc.), followed by appropriate
+        # additional information, i.e., name and model of accessories, cell thickness, and window material for
+        # fixed liquid cells, ATR plate material, angle and cone of incidence, and effective number of reflections
+        # for ATR measurements, polarization, and special modulation techniques, as discussed by Grasselli et al.
+        # data['##DATA PROCESSING'] = ""
+        # (TEXT). Description of background correction, smoothing, subtraction,
+        # deconvolution procedures, apodization function, zero - fill, or other data processing, together
+        # with reference to original spectra used for subtractions.
+
+        vx = np.float32(self.x)
+        vy = np.float32(self.y)
+
+        data['##DELTAX'] = (vx[-1] - vx[0]) / (len(vx) - 1)
+        data['##XUNITS'] = "NANOMETERS"
+        data['##YUNITS'] = "REFLECTANCE"
+        data['##XFACTOR'] = 1.0
+        data['##YFACTOR'] = 1.0
+
+        data['##FIRSTX'] = vx[0]
+        data['##LASTX'] = vx[-1]
+        data['##NPOINTS'] = len(vx)
+        data['##FIRSTY'] = vy[0]
+        data['##XYDATA'] = [xy for xy in zip(vx, vy)]
+
+        data['##END'] = ''
+
+        # write the file
+        if not os.path.isdir(os.path.dirname(file_name)):
+            os.makedirs(os.path.dirname(file_name))
+        with open(file_name, 'w') as f:
+            for k, v in data.items():
+                if k == "##XYDATA":
+                    f.write('##XYDATA= (X++(Y..Y))\n')
+                    for x, y in v:
+                        f.write('%s %s\n' % (str(x), str(y)))
+                else:
+                    f.write('%s= %s\n' % (k.replace('_', ' '), str(v)))
+
+    @staticmethod
+    def __jcamp_line_to_key_value(line):
+        result = re.search(r'##(.*)= (.*)', line)
+        if result:
+            return (result.group(1), result.group(2))
+        else:
+            return None
+
+    @staticmethod
+    def __jcamp_split_multi_values(combined_values: str, expected_n_values=0, separator='|'):
+        values = [v.strip(' ') for v in combined_values.split(separator)]
+        if expected_n_values > 0:
+            while len(values) < expected_n_values:
+                values.append('')
+        return values
+
+    @staticmethod
+    def load_jcamp(file):
+        """
+        Only works with files produced by __save_jcamp
+        :param file:
+        :return:
+        """
+        with open(file, 'r') as f:
+            lines = f.read().splitlines()
+
+        start_xy_data = False
+        metadata = Metadata('')
+        x = []
+        y = []
+        for line in lines:
+            kv = Spectrum.__jcamp_line_to_key_value(line)
+            if kv is None:
+                if start_xy_data:
+                    vx, vy = Spectrum.__jcamp_split_multi_values(line, 2, ' ')
+                    try:
+                        x.append(float(vx))
+                        y.append(float(vy))
+                    except:
+                        pass
+            else:
+                k, v = kv
+                if k == 'TITLE':
+                    id, src_obj = Spectrum.__jcamp_split_multi_values(v, 2)
+                    metadata.id = id
+                    metadata.source_object = src_obj
+                elif k == 'SPECTROMETER/DATASYSTEM':
+                    metadata.device_info = v
+                elif k == 'SOURCE REFERENCE':
+                    src_file, src_coords = Spectrum.__jcamp_split_multi_values(v, 2)
+                    metadata.source_file = src_file
+                    metadata.source_coordinates = src_coords
+                elif k == 'SAMPLE DESCRIPTION':
+                    description, intensity = Spectrum.__jcamp_split_multi_values(v, 2)
+                    metadata.description = description
+                    metadata.intensity = intensity
+                elif k == 'XYDATA':
+                    start_xy_data = True
+                elif k == 'END':
+                    break
+        return Spectrum(np.array(x),
+                        np.array(y),
+                        metadata)
+
 
 
 class Database:
 
-    def __init__(self):
-        self.data = None
-        self.file_data = None
+    def __init__(self, root=''):
+        self.root = root
+        #self.data = None
+        #self.file_data = None
+        self.spectra = []
+        self.refresh_from_disk()
 
-
-    @staticmethod
-    def create_database(dir_root: str, visualize=False):
-        db_spectra = []
-
-        dir_vis = os.path.join(dir_root, 'db_visualizations')
-        if visualize and not os.path.exists(dir_vis):
-            os.makedirs(dir_vis)
-
-        for img_name in os.listdir(dir_root):
-            cur_dir = os.path.join(dir_root, img_name)
-            if os.path.isdir(cur_dir):
-                file_labels = os.path.join(cur_dir, img_name+'.json')
-                labels = None
-                try:
-                    with open(file_labels, 'r') as f:
-                        labels = json.load(f)['shapes']
-                except:
-                    print('Error while trying to read labels from %s. Skipping.' % file_labels)
-                    continue
-
-                file_hsdata = os.path.join(cur_dir, 'capture', img_name+'.raw')
-                cube = None
-                try:
-                    cube = Cube(file_hsdata)
-                except:
-                    print('Error while trying to read HS data from %s. Skipping.' % file_hsdata)
-                    continue
-
-                # for visualization purposes..
-                rgb = cube.to_rgb()
-                fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-                fig.suptitle('Spectra extracted from %s' % img_name)
-
-                for lab in labels:
-                    x = [int(lab['points'][0][0]), int(lab['points'][1][0])]
-                    x.sort()
-                    y = [int(lab['points'][0][1]), int(lab['points'][1][1])]
-                    y.sort()
-
-                    crop_to_label = cube.data[y[0]:y[1], x[0]:x[1], :]
-                    mean_spectrum = crop_to_label.mean((0, 1))
-                    db_spectra.append({'name': lab['label'],
-                                       'spectrum': mean_spectrum.tolist(),
-                                       'bands': cube.bands})
-
-                    if visualize:
-                        axs[1].plot(cube.bands, mean_spectrum, label=lab['label'])
-                        rect_color = [0, 1, 0]
-                        rgb[y[0]:y[1], x[0]] = rect_color
-                        rgb[y[0]:y[1], x[1]] = rect_color
-                        rgb[y[0], x[0]:x[1]] = rect_color
-                        rgb[y[1], x[0]:x[1]] = rect_color
-
-                if visualize:
-                    axs[0].imshow(rgb)
-                    axs[1].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-                    axs[2].axis('off')
-                    plt.savefig(os.path.join(dir_vis, img_name+'_spectra.png'), transparent=True)
-
-        if db_spectra:
-            file_db = os.path.join(dir_root, os.path.basename(dir_root)+'_spectra-db.json')
-            with open(file_db, 'w') as f:
-                json.dump(db_spectra, f, indent=4)
-
-    def load_db(self, file):
-        self.file_data = file
-        with open(self.file_data, 'r') as f:
-            self.data = json.load(f)
-        self.data.sort(key=lambda x: x['name'])
-
-    def save_db(self, file=None):
-        if file is None:
-            file = self.file_data
-        with open(file, 'w') as f:
-            json.dump(self.data, f, indent=4)
-
-    def add_to_db(self, name, spectrum, bands):
-        if isinstance(spectrum, np.ndarray):
-            spectrum = [x.item() for x in spectrum]
-        if name in [s['name'] for s in self.data]:
-            # overwrite spectrum
-            for s in self.data:
-                if s['name'] == name:
-                    s['spectrum'] = spectrum
-                    s['bands'] = bands
-        else:
-            # insert new spectrum
-            self.data.append({'name': name,
-                              'spectrum': spectrum,
-                              'bands': bands})
+    def refresh_from_disk(self, new_root=''):
+        if new_root:
+            self.root = new_root
+        if self.root:
+            self.spectra = []
+            for root, dirs, files in os.walk(self.root):
+                for f in files:
+                    base, ext = os.path.splitext(f)
+                    if ext in ['.dx', '.jdx', '.jcm']:
+                        try:
+                            spectrum = Spectrum.load_jcamp(os.path.join(root, f))
+                            self.spectra.append(spectrum)
+                        except:
+                            print(f'Error loading {os.path.join(root, f)}')
+                            pass
 
     @staticmethod
     def compare_spectra(x1, y1,
@@ -169,30 +255,45 @@ class Database:
             return np.mean(errs)
 
     def search_spectrum(self,
-                        x,
-                        y,
+                        x_query,
+                        y_query,
                         custom_range=None,
                         use_gradient=False,
                         squared_errs=True):
-
-
-        bands_query = x
-        spectrum_query = y
         results = []
-        for d in self.data:
-            bands_db = np.array(d['bands'])
-            spectrum_db = np.array(d['spectrum'])
-            error = Database.compare_spectra(bands_query,
-                                             spectrum_query,
-                                             bands_db,
-                                             spectrum_db,
+        for db_spectrum in self.spectra:
+            error = Database.compare_spectra(x_query,
+                                             y_query,
+                                             db_spectrum.x,
+                                             db_spectrum.y,
                                              custom_range=custom_range,
                                              use_gradient=use_gradient,
                                              squared_errs=squared_errs)
             if error is not None:
-                result = d
-                result['error'] = error
-                results.append(result)
-
+                results.append({'error': error,
+                                'spectrum': db_spectrum})
         results.sort(key=lambda v: v['error'])
         return results
+
+    @staticmethod
+    def export_spectrum(file_spectrum,
+                        spectrum,
+                        image=None):
+        valid = True
+        if os.path.splitext(file_spectrum)[1] in ['.dx', '.jdx', '.jcm']:
+            spectrum.save_jcamp(file_spectrum)
+        elif os.path.splitext(file_spectrum)[1] in ['.dpt', '.txt', '.csv']:
+            spectrum.save_dpt(file_spectrum)
+        else:
+            valid = False
+        if valid:
+            if image is not None:
+                base, ext = os.path.splitext(file_spectrum)
+                matplotlib.image.imsave(base + '.png', image)
+            return True
+        else:
+            print('warning: invalid file extension given. spectrum not saved. allowed: '
+                  '.dpt, .txt (plain comma-separated x,y values), .dx, .jdx, .jcm (JCAMP-DX)')
+            return False
+
+
