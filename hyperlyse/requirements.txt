@@ -1,0 +1,6 @@
+matplotlib
+numpy
+PyQt6
+scikit_learn
+scipy
+spectral
