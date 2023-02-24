@@ -1,5 +1,5 @@
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from PyQt6.QtWidgets import QSizePolicy, QDialog, QFormLayout, QLabel, QLineEdit, QComboBox, QDialogButtonBox
 from PyQt6.QtCore import QSize
 
