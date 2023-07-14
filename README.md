@@ -9,6 +9,9 @@ See directory <code>doc</code> for documentation.
 ---
 ## Changelog
 
+### v1.3.1 (patch)
+* default filename for spetrum export now only contains the object name once
+
 ### v1.3
 * R009 brightness adjustment slider for visualization image
 * R010 UI element for y-range
@@ -67,4 +70,4 @@ for python packages, see requirements.txt
 
 **building with pyinstaller currently only works up to python 3.9**
 
-for building with pyinstaller on Windows, cd to /hyperlyse/ and run build.bat
+for building with pyinstaller on Windows, cd to /hyperlyse/src/ and run build.bat
