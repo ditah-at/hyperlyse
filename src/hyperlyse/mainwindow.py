@@ -684,10 +684,10 @@ class MainWindow(QMainWindow):
         elif self.tabs_img_ctrl.currentIndex() == 1:
             suffix = self.lbl_lambda.text()
         elif self.tabs_img_ctrl.currentIndex() == 2:
-            if self.cmb_similaritymap_ref.currentData() == -1:
+            if self.rb_sim_cube.isChecked():
                 suffix = f'sim{self.selection_str()}'
             else:
-                suffix = f'sim({self.cmb_similaritymap_ref.currentText()})'
+                suffix = f'sim({self.cmb_comparison_ref.currentText()})'
         elif self.tabs_img_ctrl.currentIndex() == 3:
             suffix = f'pc{self.sl_component.value()}'
         else:

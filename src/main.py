@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QApplication
 
 
 # config
-__version__ = "1.3"
+__version__ = "1.3.2"
 config = hyper.Config(__version__, 'config.json')
 
 # main

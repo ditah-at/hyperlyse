@@ -9,6 +9,9 @@ See directory <code>doc</code> for documentation.
 ---
 ## Changelog
 
+### v1.3.2
+* bugfix: crash on save similarity image
+
 ### v1.3.1 (patch)
 * default filename for spetrum export now only contains the object name once
 
