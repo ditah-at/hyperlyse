@@ -4,7 +4,25 @@ Hyperspectral Image Analysis tool
 
 ---
 
-See directory <code>doc</code> for documentation.
+See directory <code>doc</code> for documentation and <code>dist_archive</code> for Windows builds.
+
+---
+
+## Building
+for python packages, see requirements.txt
+
+**building with pyinstaller currently only works up to python 3.9**
+
+for building with pyinstaller on Windows, cd to /hyperlyse/src/ and run build.bat
+
+---
+
+## Using the Windows buids
+1. Download the latest <code>.zip</code> archive from <code>dist_archive</code>
+2. unpack
+3. run <code>hyperlyse.exe</code>
+
+Known issue: some overly ambitions anti-virus softwares might put some of the necessary files in quarantine when unpacking... then the applications does not start properly.
 
 ---
 ## Changelog
@@ -66,11 +84,3 @@ See directory <code>doc</code> for documentation.
 ### open feature requests
 (none)
     
----
-
-## Building
-for python packages, see requirements.txt
-
-**building with pyinstaller currently only works up to python 3.9**
-
-for building with pyinstaller on Windows, cd to /hyperlyse/src/ and run build.bat
