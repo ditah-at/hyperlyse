@@ -9,13 +9,13 @@ See directory <code>doc</code> for documentation and <code>dist_archive</code> f
 ---
 
 ## Running with python
-for required python packages, see requirements.txt
+for required python packages, see <code>src/requirements.txt</code>
 
 run:
-<code>
+```
 cd [repo-root]/src
 python main.py
-</code>
+```
 
 ---
 
