@@ -8,12 +8,14 @@ See directory <code>doc</code> for documentation and <code>dist_archive</code> f
 
 ---
 
-## Building
-for python packages, see requirements.txt
+## Running with python
+for required python packages, see requirements.txt
 
-**building with pyinstaller currently only works up to python 3.9**
-
-for building with pyinstaller on Windows, cd to /hyperlyse/src/ and run build.bat
+run:
+<code>
+cd [repo-root]/src
+python main.py
+</code>
 
 ---
 
@@ -25,6 +27,17 @@ for building with pyinstaller on Windows, cd to /hyperlyse/src/ and run build.ba
 Known issue: some overly ambitions anti-virus softwares might put some of the necessary files in quarantine when unpacking... then the applications does not start properly.
 
 ---
+
+## Making new Windows builds
+
+for required python packages, see requirements.txt
+
+**building with pyinstaller currently only works up to python 3.9**
+
+for building with pyinstaller on Windows, cd to /hyperlyse/src/ and run build.bat
+
+---
+
 ## Changelog
 
 ### v1.3.2
