@@ -2,6 +2,13 @@ import numpy as np
 from sklearn import decomposition
 
 def principal_component_analysis(cube_data, p_keep=1.0, n_components=0):
+    """
+    Do PCA
+    :param cube_data: the original spectral cube
+    :param p_keep: compute pca on random sample of p_keep of data
+    :param n_components: number of principal components that should be returned
+    :return: stack of principal components
+    """
 
     cube_rows, cube_cols, cube_bands = cube_data.shape
 

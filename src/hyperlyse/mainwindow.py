@@ -28,6 +28,7 @@ class MainWindow(QMainWindow):
         self.pca = None
         self.error_map = None
         self.error_map_recompute_flag = True    # do we have to recompute the error map?
+        self.pca_recompute_flag = True          # same for pca
         self.point_selection = None
         self.rect_selection = None
         self.spectrum_y = None
@@ -277,6 +278,8 @@ class MainWindow(QMainWindow):
         self.rs_xrange.endValueChanged.connect(self.update_spectrum_plot)
         self.rs_xrange.startValueChanged.connect(self.set_recompute_errmap_flag)
         self.rs_xrange.endValueChanged.connect(self.set_recompute_errmap_flag)
+        self.rs_xrange.startValueChanged.connect(self.set_recompute_pca_flag)
+        self.rs_xrange.endValueChanged.connect(self.set_recompute_pca_flag)
 
         layout_compare_ctrl.addWidget(self.rs_xrange)
 
@@ -408,6 +411,7 @@ class MainWindow(QMainWindow):
         self.spectrum_y = None
         self.error_map = None
         self.error_map_recompute_flag = True
+        self.pca_recompute_flag = True
         self.tabs_img_ctrl.setCurrentIndex(0)
         self.sl_lambda.setValue(0)
         self.lbl_lambda.setText(self.get_lambda_slider_text(0))
@@ -422,6 +426,9 @@ class MainWindow(QMainWindow):
 
     def set_recompute_errmap_flag(self):
         self.error_map_recompute_flag = True
+
+    def set_recompute_pca_flag(self):
+        self.pca_recompute_flag = True
 
     def update_image_label(self):
         img = None
@@ -467,8 +474,13 @@ class MainWindow(QMainWindow):
         elif self.tabs_img_ctrl.currentIndex() == 3:
             component = self.sl_component.value()
             if self.cube is not None:
-                if self.pca is None:
-                    self.pca = hyper.principal_component_analysis(self.cube.data, p_keep=0.01, n_components=10)
+                if self.pca is None or self.pca_recompute_flag:
+                    self.pca_recompute_flag = False
+                    band_min = self.cube.lambda2layer(self.rs_xrange.start())
+                    band_max = self.cube.lambda2layer(self.rs_xrange.end())
+                    self.pca = hyper.principal_component_analysis(self.cube.data[:,:,band_min:band_max],
+                                                                  p_keep=0.01,
+                                                                  n_components=10)
                 if 0 <= component < self.pca.shape[2]:
                     img = self.pca[:, :, component]
                     img = (img - img.min()) / (img.max() - img.min())

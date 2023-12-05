@@ -50,6 +50,10 @@ class Cube:
             self.rgb_layers = (self.lambda2layer(Cube.DEFAULT_RGB[0]),
                                self.lambda2layer(Cube.DEFAULT_RGB[1]),
                                self.lambda2layer(Cube.DEFAULT_RGB[2]))
+        if 'scale factor' in header.metadata:
+            scale_factor = float(header.metadata['scale factor'])
+        else:
+            scale_factor = 1.0
         for device_key in ['sensor type', 'instrument name']:
             if device_key in header.metadata:
                 self.device = header.metadata[device_key]
@@ -78,7 +82,8 @@ class Cube:
             self.data = (data - dref_data) / (wref_data - dref_data)
 
         except:
-            self.data = data / (np.mean(data[:]) + 3 * np.std(data[:]))
+            #self.data = np.clip(data / scale_factor, 0, 1)
+            self.data = data / scale_factor
             print("WARNING: No reference spectra found, cube might be uncalibrated.")
 
         if verbose:
